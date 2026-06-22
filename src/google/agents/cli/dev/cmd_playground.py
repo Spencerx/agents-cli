@@ -14,6 +14,7 @@
 
 """agents-cli playground command — start local agent playground."""
 
+import os
 import shlex
 
 import click
@@ -66,9 +67,13 @@ def cmd_playground(port, host, reload_agents, trace_to_cloud):
         host,
         "--port",
         str(port),
-        "--allow_origins",
-        "*",
     ]
+
+    # A '*' value is improperly shell-expanded on Windows due to an ADK bug,
+    # see b/525208532. Work around it by only passing the flag for non-Windows.
+    if os.name != "nt":
+        args.extend(["--allow_origins", "*"])
+
     if reload_agents:
         args.append("--reload_agents")
     if trace_to_cloud:

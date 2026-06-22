@@ -5,14 +5,17 @@ description: >
   "publish my ADK agent", "register an agent with Gemini Enterprise",
   "publish to Gemini Enterprise", or needs guidance on the agents-cli
   publish gemini-enterprise command.
+  Also use when the user wants to "manage agents in Agent Registry" or
+  "list/update/delete registered agents".
   Covers ADK vs A2A registration modes, programmatic and interactive usage,
-  flag reference, auto-detection from deployment metadata, and troubleshooting.
+  flag reference, auto-detection from deployment metadata, Agent Registry
+  fleet management, and troubleshooting.
   Part of the Google ADK (Agent Development Kit) skills suite.
   Do NOT use for deployment (use google-agents-cli-deploy).
 metadata:
   author: Google
   license: Apache-2.0
-  version: 0.5.0
+  version: 0.5.1
   requires:
     bins:
       - agents-cli
@@ -151,6 +154,35 @@ agents-cli publish gemini-enterprise \
 ## SDK Compatibility
 
 Agent Runtime deployments may encounter "Session not found" errors with `google-cloud-aiplatform` versions <= 1.128.0. In interactive mode (`--interactive`), the command checks the SDK version from `uv.lock` and offers to upgrade. In programmatic mode, ensure your SDK is up to date before registering.
+
+---
+
+## Managing Agents in Agent Registry
+
+Agent Registry (Preview) is the Google Cloud fleet-wide record of your agents.
+Agents deployed to a managed runtime (Agent Runtime on Gemini Enterprise
+Agent Platform) are **auto-registered** — no extra step after `agents-cli deploy`.
+Manage them with `gcloud` (requires `roles/agentregistry.editor`):
+
+```bash
+# List / filter
+gcloud alpha agent-registry agents list --project PROJECT --location LOCATION
+gcloud alpha agent-registry agents list --filter="displayName:my-agent"
+
+# Inspect
+gcloud alpha agent-registry agents describe AGENT_NAME
+
+# Update endpoint/metadata — edit the Service resource, not the Agent
+gcloud alpha agent-registry services update AGENT_NAME \
+  --display-name "..." --description "..." \
+  --interfaces "url=ENDPOINT_URL,protocol=HTTP_JSON"
+
+# Remove: delete the underlying runtime agent (auto-registered) OR, for
+# manually registered agents, delete the Service resource
+gcloud alpha agent-registry services delete AGENT_NAME
+```
+
+Docs: https://docs.cloud.google.com/agent-registry/manage-agents
 
 ---
 

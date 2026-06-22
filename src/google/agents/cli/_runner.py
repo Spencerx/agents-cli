@@ -152,3 +152,43 @@ def popen_resolved(
         args[0] = _tools.require_tool(executable)
 
     return subprocess.Popen(args, **kwargs)
+
+
+def popen_resolved_detached(
+    args: list[str], *, resolve_executable: bool = True, **kwargs
+) -> subprocess.Popen:
+    """Wrapper around subprocess.Popen for launching detached background processes.
+
+    Handles cross-platform differences for process detaching:
+    - On POSIX, sets start_new_session=True.
+    - On Windows, sets creationflags to DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP.
+    - Ensures stdin is redirected to subprocess.DEVNULL.
+
+    Args:
+        args: Command and arguments as a list of strings.
+        resolve_executable: If True, resolve the executable path using require_tool.
+            Defaults to True.
+        **kwargs: Additional keyword arguments passed to subprocess.Popen.
+
+    Raises:
+        ToolNotFoundError: If resolve_executable is True and the tool cannot be found.
+
+    Returns:
+        Popen instance.
+    """
+    stdin = kwargs.get("stdin")
+    if stdin is not None and stdin is not subprocess.DEVNULL:
+        raise ValueError("popen_resolved_detached only supports stdin=DEVNULL.")
+    kwargs["stdin"] = subprocess.DEVNULL
+
+    if os.name == "nt":
+        # Windows-specific process creation flags for detaching
+        create_new_process_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        flags = create_new_process_group | create_no_window
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | flags
+    else:
+        # POSIX way of detaching
+        kwargs["start_new_session"] = True
+
+    return popen_resolved(args, resolve_executable=resolve_executable, **kwargs)

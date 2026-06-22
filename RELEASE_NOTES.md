@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-06-18
+- Fixed run and playground commands on Windows
+  - https://github.com/google/agents-cli/issues/34
+  - https://github.com/google/agents-cli/issues/35
+  - Thanks to @Abdullah-k0de for discovering and reporting these!
+- Fixed stale GCS bucket in failure-investigation guide
+- Added Agent Registry fleet management to publish skill
+
 ## [0.5.0] - 2026-06-15
 - `deploy` now surfaces machine-shape parameters as flags for Agent Runtime and Cloud Run.
 - `deploy` adds a `--service-name` override.

@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-import signal
 import socket
 import time
 from datetime import UTC, datetime
@@ -26,8 +26,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 import click
+import psutil
 
-from google.agents.cli._runner import popen_resolved
+from google.agents.cli._runner import popen_resolved_detached
 
 _PID_DIR = ".google-agents-cli"
 _PID_FILENAME = "run_server.json"
@@ -195,14 +196,12 @@ def _start_server(
 
     log_file = open(log_path, "a", encoding="utf-8")
     try:
-        proc = popen_resolved(
+        proc = popen_resolved_detached(
             cmd,
             cwd=str(project_root),
             stdout=log_file,
             stderr=log_file,
             env=env,
-            # Detach from the CLI process so the server survives after exit.
-            start_new_session=True,
         )
     finally:
         # Close the parent's copy of the fd — the child inherits its own.
@@ -321,19 +320,21 @@ def _cleanup(project_root: Path, info: dict) -> None:
     pid = info.get("pid")
     if pid:
         try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
-        else:
-            # Wait briefly for the process to release its port.
-            try:
-                os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                # Not a direct child — fall back to a short sleep so the
-                # port is freed before we attempt to bind a new one.
-                time.sleep(0.3)
+            parent = psutil.Process(pid)
+            children = parent.children(recursive=True)
+            for child in children:
+                try:
+                    child.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+            parent.terminate()
+            psutil.wait_procs([*children, parent], timeout=3)
+        except psutil.NoSuchProcess:
+            logging.warning(
+                "Local server process with PID %d not found, skipping termination.", pid
+            )
     path = _pid_file_path(project_root)
     try:
-        path.unlink()
-    except OSError:
-        pass
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logging.warning("Failed to remove PID file %s: %s", path, exc)
