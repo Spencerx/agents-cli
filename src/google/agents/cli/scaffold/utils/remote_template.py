@@ -76,7 +76,7 @@ def parse_agent_spec(agent_spec: str) -> RemoteTemplateSpec | None:
 
     # General remote pattern: <repo_url>[/<path>][@<ref>]
     # Handles github.com, gitlab.com, etc.
-    remote_pattern = r"^(https?://[^/]+/[^/]+/[^/]+)(?:/(.*?))?(?:@([^/]+))?/?$"
+    remote_pattern = r"^(https?://[^/]+/[^/]+/[^/@]+)(?:/(.*?))?(?:@([^/]+))?/?$"
     match = re.match(remote_pattern, agent_spec)
     if match:
         repo_url = match.group(1)
@@ -103,7 +103,7 @@ def parse_agent_spec(agent_spec: str) -> RemoteTemplateSpec | None:
         )
 
     # GitHub shorthand: <org>/<repo>[/<path>][@<ref>]
-    github_shorthand_pattern = r"^([^/]+)/([^/]+)(?:/(.*?))?(?:@([^/]+))?/?$"
+    github_shorthand_pattern = r"^([^/]+)/([^/@]+)(?:/(.*?))?(?:@([^/]+))?/?$"
     match = re.match(github_shorthand_pattern, agent_spec)
     if match and "/" in agent_spec:  # Ensure it has at least one slash
         org = match.group(1)

@@ -205,7 +205,7 @@ def _start_server(
         "--no-reload",
     ]
     if trace_to_cloud:
-        cmd.append("--trace_to_cloud")
+        cmd.append("--otel_to_cloud")
     cmd.append(".")
 
     # Use in-memory sessions locally so the server can start without

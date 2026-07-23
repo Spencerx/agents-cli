@@ -368,8 +368,38 @@ resource "kubernetes_deployment_v1" "app_staging" {
           }
 
           env {
+            name  = "OTEL_SERVICE_NAME"
+            value = "{{cookiecutter.project_name}}"
+          }
+
+          env {
             name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
             value = "NO_CONTENT"
+          }
+
+          env {
+            name  = "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"
+            value = "false"
+          }
+
+          env {
+            name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
+            value = "gen_ai_latest_experimental"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_FORMAT"
+            value = "jsonl"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK"
+            value = "upload"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
+            value = "gs://${google_storage_bucket.logs_data_bucket[var.staging_project_id].name}/completions"
           }
 
 {%- if cookiecutter.language == "python" %}
@@ -673,8 +703,38 @@ resource "kubernetes_deployment_v1" "app_prod" {
           }
 
           env {
+            name  = "OTEL_SERVICE_NAME"
+            value = "{{cookiecutter.project_name}}"
+          }
+
+          env {
             name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
             value = "NO_CONTENT"
+          }
+
+          env {
+            name  = "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"
+            value = "false"
+          }
+
+          env {
+            name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
+            value = "gen_ai_latest_experimental"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_FORMAT"
+            value = "jsonl"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK"
+            value = "upload"
+          }
+
+          env {
+            name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
+            value = "gs://${google_storage_bucket.logs_data_bucket[var.prod_project_id].name}/completions"
           }
 
 {%- if cookiecutter.language == "python" %}

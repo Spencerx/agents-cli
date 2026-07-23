@@ -1,6 +1,8 @@
 import { FunctionTool, LlmAgent } from '@google/adk';
 import { z } from 'zod';
 
+const MODEL = 'gemini-3.6-flash';
+
 /* Mock tool implementation */
 const getWeather = new FunctionTool({
   name: 'get_weather',
@@ -15,7 +17,7 @@ const getWeather = new FunctionTool({
 
 export const rootAgent = new LlmAgent({
   name: '{{cookiecutter.project_name | replace("-", "_")}}_agent',
-  model: 'gemini-flash-latest',
+  model: MODEL,
   description: 'Tells the current weather in a specified city.',
   instruction: `You are a helpful assistant that tells the current weather in a city.
                 Use the 'getWeather' tool for this purpose.`,

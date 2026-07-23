@@ -25,7 +25,7 @@ import click
 import yaml
 
 # Pin the skills npm package to avoid executing an unverified version.
-SKILLS_NPX_PACKAGE = "skills@1.4.8"
+SKILLS_NPX_PACKAGE = "skills@1.5.18"
 
 _SKILLS_CHECK_INTERVAL = 12 * 60 * 60  # 12 hours in seconds
 _SKILLS_CHECK_STAMP = Path.home() / ".agents" / ".acli_skills_check"

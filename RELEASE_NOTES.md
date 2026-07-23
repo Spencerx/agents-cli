@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-07-21
+
+- **Cloud telemetry moved to ADK's `otel_to_cloud`, across the CLI and deploys.** `playground` and `run` gain an `--otel-to-cloud` flag that forwards ADK's current `--otel_to_cloud`; the old `--trace-to-cloud` stays as a hidden, still-functional alias that warns when used. On the deployment side, Agent Runtime now exports through `otel_to_cloud` (gated on `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY`) and generated projects configure Cloud telemetry declaratively in Terraform instead of at runtime. Bundled `google-adk` moves to `>=2.2.0` with the `otel-gcp` extra, and the observability skill was updated to match.
+- Scaffolds now default to `gemini-3.6-flash`.
+- **Agent Analytics now captures GenAI completions on Agent Runtime.** The BigQuery telemetry log sink is configured per deployment target, so Agent Runtime deployments route their GenAI request/response logs into BigQuery instead of leaving the completions view empty.
+- **Managed Agents guidance in the ADK code skill.** The bundled ADK cheatsheet gained a Managed Agents section covering when to use `ManagedAgent`, Gemini API vs Agent Platform (GEAP) setup, and a runnable create-and-use example.
+
 ## [1.1.0] - 2026-07-10
 
 - **Guided brainstorming for new agents.** The workflow skill's Phase 0 is now an interactive brainstorming dialogue that helps you shape an agent's spec before any code is written, and surfaces its assumptions for review when it can't ask.

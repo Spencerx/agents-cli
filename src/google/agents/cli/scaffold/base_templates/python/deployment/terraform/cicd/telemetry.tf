@@ -65,7 +65,9 @@ resource "google_logging_project_sink" "genai_logs_to_bq" {
   name        = "${var.project_name}-genai-logs"
   project     = each.value
   destination = "bigquery.googleapis.com/projects/${each.value}/datasets/${google_bigquery_dataset.telemetry_dataset[each.key].dataset_id}"
-  filter      = "log_name=\"projects/${each.value}/logs/gen_ai.client.inference.operation.details\" AND (labels.\"gen_ai.input.messages_ref\" =~ \".*${var.project_name}.*\" OR labels.\"gen_ai.output.messages_ref\" =~ \".*${var.project_name}.*\")"
+  # Match GenAI completion logs on the event.name label (the log id, and hence
+  # the BigQuery sink table name, varies by deployment target).
+  filter      = "labels.\"event.name\"=\"gen_ai.client.inference.operation.details\" AND (labels.\"gen_ai.input.messages_ref\" =~ \".*${var.project_name}.*\" OR labels.\"gen_ai.output.messages_ref\" =~ \".*${var.project_name}.*\")"
 
   unique_writer_identity = true
 
@@ -174,7 +176,7 @@ resource "google_bigquery_table" "genai_logs_table" {
   for_each            = local.deploy_project_ids
   project             = each.value
   dataset_id          = google_bigquery_dataset.telemetry_dataset[each.key].dataset_id
-  table_id            = "gen_ai_client_inference_operation_details"
+  table_id            = {% if cookiecutter.deployment_target == 'agent_runtime' %}"aiplatform_googleapis_com_reasoning_engine_stdout"{% else %}"gen_ai_client_inference_operation_details"{% endif %}
   deletion_protection = false
   description         = "GenAI inference logs exported directly from Cloud Logging"
 
@@ -211,6 +213,7 @@ resource "google_bigquery_table" "completions_view" {
       project_id                 = each.value
       dataset_id                 = google_bigquery_dataset.telemetry_dataset[each.key].dataset_id
       completions_external_table = google_bigquery_table.completions_external_table[each.key].table_id
+      genai_logs_table           = google_bigquery_table.genai_logs_table[each.key].table_id
     })
     use_legacy_sql = false
   }

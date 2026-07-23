@@ -688,6 +688,8 @@ def cmd_deploy(
         env_var_map = read_project_dotenv(project_root)
         env_var_map.update(parse_key_value_pairs(update_env_vars))
         env_var_map.setdefault("AGENT_VERSION", get_project_version(project_root))
+        # Fail closed: ADK defaults content-in-spans to true; keep it off for bare deploys.
+        env_var_map.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
 
         # Set APP_URL so the service knows its own URL (used by A2A agent cards, etc.)
         if "APP_URL" not in env_var_map and project:
@@ -1043,6 +1045,8 @@ def _deploy_gke(
     env_var_map = read_project_dotenv(project_root)
     env_var_map.update(parse_key_value_pairs(update_env_vars))
     env_var_map.setdefault("AGENT_VERSION", get_project_version(project_root))
+    # Fail closed: ADK defaults content-in-spans to true; keep it off for bare deploys.
+    env_var_map.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
 
     click.echo("\n🌐 Getting service IP...")
     ip_result = run(

@@ -19,12 +19,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import mimetypes
-import re
 import uuid
 from pathlib import Path
 from typing import NamedTuple
-from urllib.parse import urlparse
 
 import click
 import httpx
@@ -44,6 +43,7 @@ from a2a.types import (
 )
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 
+from google.agents.cli._adk_client import create_session, run_sse
 from google.agents.cli._agent_runtime_a2a import (
     build_agent_runtime_a2a_base_url,
     build_agent_runtime_a2a_card_url,
@@ -53,7 +53,12 @@ from google.agents.cli._project import (
     read_project_config,
     require_agent_directory,
 )
-from google.agents.cli.auth import get_access_token, get_id_token
+from google.agents.cli._remote import (
+    build_remote_headers,
+    is_raw_agent_runtime_url,
+    parse_agent_runtime_service_url,
+    validate_agent_runtime_url,
+)
 from google.agents.cli.run._local_server import ensure_server, stop_server
 from google.agents.cli.run._multimodal import (
     build_a2a_parts,
@@ -61,10 +66,6 @@ from google.agents.cli.run._multimodal import (
     build_agent_runtime_message,
 )
 
-_AGENT_ENGINE_URL_FRAGMENT = "aiplatform.googleapis.com"
-_REASONING_ENGINE_PATH = "reasoningEngines"
-# A valid Agent Runtime host carries a location prefix: <location>-aiplatform.googleapis.com
-_AGENT_RUNTIME_HOST_RE = re.compile(rf".+-{re.escape(_AGENT_ENGINE_URL_FRAGMENT)}$")
 _ARTIFACTS_DIR = Path(".google-agents-cli") / "artifacts"
 
 
@@ -100,7 +101,7 @@ def _resolve_dispatch_target(
             raise click.UsageError(
                 "--mode is required when using --url. Choose from: a2a, adk"
             )
-        _validate_agent_runtime_url(url)
+        validate_agent_runtime_url(url)
         if app_name:
             resolved = app_name
         else:
@@ -110,7 +111,7 @@ def _resolve_dispatch_target(
             resolved = cfg.agent_directory
         return _DispatchTarget(
             service_url=url,
-            headers=_build_remote_headers(custom_headers, url),
+            headers=build_remote_headers(custom_headers, url),
             mode=mode,
             app_name=resolved,
         )
@@ -136,50 +137,6 @@ def _handle_stop_server(ctx: click.Context, _param: click.Parameter, value: bool
     if stop_server(Path.cwd()):
         ctx.exit(0)
     raise click.ClickException("No local server is running.")
-
-
-def _parse_header(value: str) -> tuple[str, str]:
-    """Parse a ``Key: Value`` header string."""
-    if ":" not in value:
-        raise click.BadParameter(
-            f"Invalid header format (expected 'Key: Value'): {value}"
-        )
-    key, _, val = value.partition(":")
-    return key.strip(), val.strip()
-
-
-def _build_remote_headers(
-    custom_headers: tuple[str, ...], url: str = ""
-) -> dict[str, str]:
-    """Build headers for remote requests.
-
-    Auto-detects Google Cloud credentials unless the caller supplies
-    an ``Authorization`` header via ``--header``.
-
-    Uses an **access token** for Vertex AI / Agent Runtime URLs and an
-    **identity token** (with the service URL as audience) for everything
-    else (Cloud Run, GKE, etc.).
-    """
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    parsed = dict(_parse_header(h) for h in custom_headers)
-
-    if "Authorization" not in parsed:
-        try:
-            if _is_agent_runtime_url(url):
-                token = get_access_token()
-            else:
-                parsed_url = urlparse(url)
-                audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                token = get_id_token(audience)
-            headers["Authorization"] = f"Bearer {token}"
-        except Exception as exc:
-            click.echo(
-                f"Warning: Could not obtain credentials: {exc}",
-                err=True,
-            )
-
-    headers.update(parsed)
-    return headers
 
 
 @click.command("run")
@@ -253,13 +210,20 @@ def _build_remote_headers(
     help="Stop the local background server and exit.",
 )
 @click.option(
-    "--trace-to-cloud",
+    "--otel-to-cloud",
     is_flag=True,
     default=False,
     help=(
-        "Export traces to Google Cloud Trace. "
+        "Export OpenTelemetry traces/logs to Google Cloud. "
         "Takes effect when the local server starts; ignored with --url."
     ),
+)
+# TODO: b/533949139
+@click.option(
+    "--trace-to-cloud",
+    is_flag=True,
+    default=False,
+    hidden=True,
 )
 @click.option(
     "--verbose",
@@ -278,6 +242,7 @@ def cmd_run(
     session_id: str | None,
     custom_headers: tuple[str, ...],
     start_server: bool,
+    otel_to_cloud: bool,
     trace_to_cloud: bool,
     verbose: bool,
 ):
@@ -319,9 +284,16 @@ def cmd_run(
             fg="yellow",
             err=True,
         )
-    if url and trace_to_cloud:
+    # TODO: b/533949139
+    if trace_to_cloud:
+        logging.warning(
+            "--trace-to-cloud is deprecated and will be removed in a future "
+            "release. Use --otel-to-cloud instead."
+        )
+    export_otel = otel_to_cloud or trace_to_cloud
+    if url and export_otel:
         click.secho(
-            "Warning: --trace-to-cloud has no effect when using --url.",
+            "Warning: --otel-to-cloud has no effect when using --url.",
             fg="yellow",
             err=True,
         )
@@ -331,7 +303,7 @@ def cmd_run(
         mode=mode,
         app_name=app_name,
         custom_headers=custom_headers,
-        trace_to_cloud=trace_to_cloud,
+        trace_to_cloud=export_otel,
     )
     if url:
         click.echo(f"Querying remote agent: {url} (mode: {target.mode})")
@@ -371,58 +343,6 @@ def cmd_run(
             stop_server(Path.cwd())
 
 
-def _is_agent_runtime_url(url: str) -> bool:
-    """Return ``True`` if *url* points to an Agent Runtime endpoint."""
-    return _AGENT_ENGINE_URL_FRAGMENT in url and _REASONING_ENGINE_PATH in url
-
-
-def _validate_agent_runtime_url(url: str) -> None:
-    """Raise a helpful hint when *url* references an Agent Runtime resource but
-    its host is missing the required ``<location>-`` location prefix.
-
-    Agent Runtime endpoints are hosted at ``<location>-aiplatform.googleapis.com``.
-    A bare resource path (no host) or a host without the location prefix can't be
-    queried, so we point at the correct format instead of failing obscurely.
-    """
-    if _REASONING_ENGINE_PATH not in url:
-        return
-    if _AGENT_RUNTIME_HOST_RE.match(urlparse(url).hostname or ""):
-        return  # Host already carries a <location>- prefix.
-    raise click.UsageError(
-        "Detected an Agent Runtime URL with a missing location.\n"
-        "  The location must appear in the host. The correct format is:\n"
-        "    https://<LOCATION>-aiplatform.googleapis.com/v1/projects/<PROJECT>"
-        "/locations/<LOCATION>/reasoningEngines/<ID>"
-    )
-
-
-def _is_raw_agent_runtime_url(url: str) -> bool:
-    """``True`` for a bare Agent Runtime resource URL that still needs its
-    ``/api`` passthrough path built.
-
-    A URL already containing ``/api`` (the deployed APP_URL form served by the
-    container) or any non-Agent-Runtime URL returns ``False`` — those are used
-    as-is with ``/a2a/<app>`` (a2a) or ``/run_sse`` (adk) appended.
-    """
-    return _is_agent_runtime_url(url) and "/api" not in url
-
-
-def _parse_agent_runtime_service_url(service_url: str) -> tuple[str, str]:
-    """Split an Agent Runtime service URL into (location, runtime_resource).
-
-    Handles both the ``/v1/`` and ``/v1beta1/`` API path variants.
-    ``https://europe-west1-aiplatform.googleapis.com/v1/projects/123/locations/
-    europe-west1/reasoningEngines/456`` →
-    ``("europe-west1", "projects/123/locations/europe-west1/reasoningEngines/456")``.
-    """
-    host = urlparse(service_url).hostname or ""
-    location = host.split(f"-{_AGENT_ENGINE_URL_FRAGMENT}", 1)[0]
-    # Resource path follows the API version segment (v1, v1beta1, ...).
-    match = re.search(r"/v1[^/]*/(.+)", service_url)
-    runtime_resource = match.group(1) if match else service_url
-    return location, runtime_resource
-
-
 def _dispatch_query(
     service_url: str,
     message: str,
@@ -448,8 +368,8 @@ def _dispatch_query(
         URLs, ``/run_sse`` for everything else.
     """
     if mode == "a2a":
-        if _is_raw_agent_runtime_url(service_url):
-            location, runtime_resource = _parse_agent_runtime_service_url(service_url)
+        if is_raw_agent_runtime_url(service_url):
+            location, runtime_resource = parse_agent_runtime_service_url(service_url)
             a2a_base = build_agent_runtime_a2a_base_url(
                 location, runtime_resource, app_name
             )
@@ -468,7 +388,7 @@ def _dispatch_query(
             verbose=verbose,
         )
     elif mode == "adk":
-        if _is_raw_agent_runtime_url(service_url):
+        if is_raw_agent_runtime_url(service_url):
             _query_agent_runtime_sse(
                 service_url=service_url,
                 message=build_agent_runtime_message(message, files),
@@ -577,57 +497,32 @@ def _query_adk_sse(
     session_id: str | None = None,
     verbose: bool = False,
 ) -> None:
-    """Create a session and stream an SSE response from an ADK FastAPI agent."""
+    """Create a session and stream an SSE response from an ADK FastAPI agent.
+
+    Thin CLI wrapper around :mod:`google.agents.cli._adk_client`: creates a
+    session if none is supplied, streams events from ``/run_sse``, and
+    renders each event to the terminal as it arrives.
+    """
     if not session_id:
-        # Create a new session
-        session_url = f"{service_url}/apps/{app_name}/users/cli-user/sessions"
-        session_resp = requests.post(session_url, headers=headers, json={}, timeout=30)
-        if not session_resp.ok:
-            hint = ""
-            if session_resp.status_code in (404, 405):
-                hint = "\n  If this is an A2A agent, try --mode a2a instead."
-            raise click.ClickException(
-                f"Failed to create session (HTTP {session_resp.status_code}):\n"
-                f"  {session_resp.text}{hint}"
-            )
-        session_data = session_resp.json()
-        session_id = session_data.get("id")
+        session_id = create_session(service_url, app_name, "cli-user", headers=headers)
 
     # Print user message (text part only for display)
     user_text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
     if user_text:
         click.echo(f"[user]: {user_text}")
 
-    # Send message via SSE
-    run_url = f"{service_url}/run_sse"
-    payload = {
-        "app_name": app_name,
-        "user_id": "cli-user",
-        "session_id": session_id,
-        "new_message": {
-            "role": "user",
-            "parts": parts,
-        },
-    }
-
     last_author = None
     artifacts: list[str] = []
-    with requests.post(
-        run_url, headers=headers, json=payload, stream=True, timeout=120
-    ) as resp:
-        if not resp.ok:
-            raise click.ClickException(
-                f"Failed to run agent (HTTP {resp.status_code}):\n  {resp.text}"
-            )
-        for line in resp.iter_lines(decode_unicode=True):
-            if not isinstance(line, str) or not line.startswith("data: "):
-                continue
-            data_str = line[len("data: ") :]
-            try:
-                event = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
-            last_author = _print_sse_event(event, last_author, verbose, artifacts)
+    user_message = {"role": "user", "parts": parts}
+    for event in run_sse(
+        service_url,
+        app_name,
+        session_id,
+        user_message=user_message,
+        headers=headers,
+        user_id="cli-user",
+    ):
+        last_author = _print_sse_event(event, last_author, verbose, artifacts)
 
     click.echo()
     _print_artifacts(artifacts)

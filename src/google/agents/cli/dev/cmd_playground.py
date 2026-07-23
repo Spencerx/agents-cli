@@ -14,6 +14,7 @@
 
 """agents-cli playground command — start local agent playground."""
 
+import logging
 import os
 import shlex
 
@@ -40,13 +41,27 @@ _console = Console()
     help="Enable / disable live reload when agent code changes.",
 )
 @click.option(
+    "--otel-to-cloud",
+    is_flag=True,
+    default=False,
+    help="Export OpenTelemetry traces/logs to Google Cloud.",
+)
+# TODO: b/533949139
+@click.option(
     "--trace-to-cloud",
     is_flag=True,
     default=False,
-    help="Export traces to Google Cloud Trace.",
+    hidden=True,
 )
-def cmd_playground(port, host, reload_agents, trace_to_cloud):
+def cmd_playground(port, host, reload_agents, otel_to_cloud, trace_to_cloud):
     """Start the local agent playground."""
+    # TODO: b/533949139
+    if trace_to_cloud:
+        logging.warning(
+            "--trace-to-cloud is deprecated and will be removed in a future "
+            "release. Use --otel-to-cloud instead."
+        )
+    otel_to_cloud = otel_to_cloud or trace_to_cloud
     chdir_project_root()
     cfg = read_project_config()
     require_agent_directory(cfg)
@@ -76,8 +91,8 @@ def cmd_playground(port, host, reload_agents, trace_to_cloud):
 
     if reload_agents:
         args.append("--reload_agents")
-    if trace_to_cloud:
-        args.append("--trace_to_cloud")
+    if otel_to_cloud:
+        args.append("--otel_to_cloud")
 
     _print_banner(url, args)
     run(args, print_cmd=False, check_err_msg="Failed to start playground")

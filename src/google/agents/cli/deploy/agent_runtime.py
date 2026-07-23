@@ -135,7 +135,11 @@ def _build_runtime_env_vars(
         env_vars.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
         env_vars.setdefault("GOOGLE_CLOUD_LOCATION", "global")
     env_vars.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "true")
-    env_vars.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true")
+    env_vars.setdefault(
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT"
+    )
+    # Fail closed: ADK defaults content-in-spans to true; keep it off for bare deploys.
+    env_vars.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
     return env_vars
 
 

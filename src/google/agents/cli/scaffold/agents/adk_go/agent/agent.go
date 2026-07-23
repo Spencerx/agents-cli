@@ -27,6 +27,9 @@ import (
 	"google.golang.org/adk/tool/functiontool"
 )
 
+// modelName is the Gemini model used by the root agent.
+const modelName = "gemini-3.6-flash"
+
 // GetWeatherArgs defines the input for the get_weather tool.
 type GetWeatherArgs struct {
 	City string `json:"city" jsonschema:"City name to get weather for"`
@@ -46,7 +49,7 @@ func GetWeather(_ tool.Context, args GetWeatherArgs) (GetWeatherResult, error) {
 
 // NewRootAgent creates and returns the root agent with all configured tools.
 func NewRootAgent(ctx context.Context) (agent.Agent, error) {
-	model, err := gemini.NewModel(ctx, "gemini-flash-latest", &genai.ClientConfig{
+	model, err := gemini.NewModel(ctx, modelName, &genai.ClientConfig{
 		Backend: genai.BackendVertexAI,
 	})
 	if err != nil {

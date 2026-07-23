@@ -26,11 +26,9 @@ from google.cloud import logging as google_cloud_logging
 
 from {{cookiecutter.agent_directory}}.app_utils import services
 from {{cookiecutter.agent_directory}}.app_utils.a2a import attach_a2a_routes
-from {{cookiecutter.agent_directory}}.app_utils.telemetry import setup_telemetry
 from {{cookiecutter.agent_directory}}.app_utils.typing import Feedback
 
 load_dotenv()
-setup_telemetry()
 _, project_id = google.auth.default()
 logging_client = google_cloud_logging.Client()
 logger = logging_client.logger(__name__)
@@ -70,7 +68,7 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=services.ARTIFACT_SERVICE_URI,
     allow_origins=allow_origins,
     session_service_uri=services.SESSION_SERVICE_URI,
-    otel_to_cloud=False,
+    otel_to_cloud=True,
     lifespan=lifespan,
 )
 app.title = "{{cookiecutter.project_name}}"
