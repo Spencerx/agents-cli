@@ -29,4 +29,4 @@ RAG is **not** a template — it's a clone-and-study recipe. Scaffold a base `ad
 - **`rag-vector-search`** — Vertex AI Vector Search 2.0 with a custom ingestion pipeline (embeddings, similarity search).
 - **`rag-agent-search`** — Agent Platform Search (Discovery Engine) with a fully-managed GCS Data Connector — drop files in a bucket, no ingestion code to write.
 
-The workflow skill's `references/samples.md` lists both with their key files, and each sample's `AGENTS.md` is the study-and-adapt guide. Provisioning and ingestion run from the sample's own `Makefile` (`make setup-infra`, `make data-ingestion`).
+The ADK code skill's `references/samples.md` lists both with their key files, and each sample's `AGENTS.md` is the study-and-adapt guide. Provisioning and ingestion run from the sample's own `Makefile` (`make setup-infra`, `make data-ingestion`).

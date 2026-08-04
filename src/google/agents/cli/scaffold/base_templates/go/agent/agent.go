@@ -19,7 +19,7 @@ package agent
 import (
 	"context"
 
-	"google.golang.org/adk/agent"
+	"google.golang.org/adk/v2/agent"
 )
 
 // NewRootAgent creates and returns the root agent.

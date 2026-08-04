@@ -20,11 +20,11 @@ import (
 
 	"google.golang.org/genai"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
-	"google.golang.org/adk/model/gemini"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model/gemini"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 // modelName is the Gemini model used by the root agent.
@@ -41,7 +41,7 @@ type GetWeatherResult struct {
 }
 
 // GetWeather returns mock weather data for a city.
-func GetWeather(_ tool.Context, args GetWeatherArgs) (GetWeatherResult, error) {
+func GetWeather(_ agent.Context, args GetWeatherArgs) (GetWeatherResult, error) {
 	return GetWeatherResult{
 		Weather: "It's sunny and 72°F in " + args.City,
 	}, nil

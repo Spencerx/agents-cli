@@ -164,6 +164,7 @@ def setup_git_repository(config: ProjectConfig) -> str:
             ["git", "remote", "get-url", "origin"],
             capture_output=True,
             check=True,
+            retry=None,
         )
         console.print("✅ Git remote already configured")
     except subprocess.CalledProcessError:
@@ -363,27 +364,43 @@ def create_or_update_secret(secret_id: str, secret_value: str, project_id: str) 
     Raises:
         subprocess.CalledProcessError: If secret creation/update fails
     """
+    # Check if the secret exists first
+    secret_exists = (
+        run_command(
+            ["gcloud", "secrets", "describe", secret_id, f"--project={project_id}"],
+            capture_output=True,
+            check=False,
+            retry=None,
+        ).returncode
+        == 0
+    )
+
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as temp_file:
         temp_file.write(secret_value)
         temp_file.flush()
 
-        # First try to add a new version to existing secret
-        try:
-            run_command(
-                [
-                    "gcloud",
-                    "secrets",
-                    "versions",
-                    "add",
-                    secret_id,
-                    "--data-file",
-                    temp_file.name,
-                    f"--project={project_id}",
-                ]
-            )
-            console.print("✅ Updated existing GitHub PAT secret")
-        except subprocess.CalledProcessError:
-            # If adding version fails (secret doesn't exist), try to create it
+        if secret_exists:
+            try:
+                run_command(
+                    [
+                        "gcloud",
+                        "secrets",
+                        "versions",
+                        "add",
+                        secret_id,
+                        "--data-file",
+                        temp_file.name,
+                        f"--project={project_id}",
+                    ]
+                )
+                console.print("✅ Updated existing GitHub PAT secret")
+            except subprocess.CalledProcessError as e:
+                console.print(
+                    f"❌ Failed to update GitHub PAT secret: {e!s}",
+                    style="bold red",
+                )
+                raise
+        else:
             try:
                 run_command(
                     [
@@ -401,7 +418,7 @@ def create_or_update_secret(secret_id: str, secret_value: str, project_id: str) 
                 console.print("✅ Created new GitHub PAT secret")
             except subprocess.CalledProcessError as e:
                 console.print(
-                    f"❌ Failed to create/update GitHub PAT secret: {e!s}",
+                    f"❌ Failed to create GitHub PAT secret: {e!s}",
                     style="bold red",
                 )
                 raise
@@ -635,6 +652,7 @@ def setup_cicd(
             ["gh", "repo", "view", f"{repository_owner}/{repository_name}"],
             capture_output=True,
             check=False,
+            retry=None,
         ).returncode
         == 0
     )

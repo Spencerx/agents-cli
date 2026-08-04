@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-08-04
+
+- Add agent-plugins.org plugin manifest
+- Smarter backoff handling for CICD command
+- Rollback to npx skills 1.5.9 to avoid a spurious error message during `setup`
+  - https://github.com/google/agents-cli/issues/59
+
 ## [1.3.0] - 2026-07-31
 
 - Update to use A2A 1.0 throughout, with a compatibility layer for A2A 0.3 clients

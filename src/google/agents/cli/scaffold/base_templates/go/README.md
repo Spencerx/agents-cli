@@ -27,7 +27,7 @@ A Go agent built with Google's Agent Development Kit (ADK).
 
 ## Requirements
 
-- Go 1.24 or later
+- Go 1.26 or later
 - Google Cloud SDK (`gcloud`)
 - A Google Cloud project with Vertex AI enabled
 

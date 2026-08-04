@@ -32,6 +32,18 @@ from google.agents.cli._gcp_project import get_gcp_project_number
 from google.agents.cli._runner import popen_resolved, run_resolved
 
 
+@dataclass(frozen=True)
+class RetryConfig:
+    """Configuration for command backoff retries."""
+
+    factor: float = 2.0
+    max_time: float | None = 60.0
+    max_tries: int | None = None
+
+
+DEFAULT_RETRY = RetryConfig()
+
+
 def setup_git_provider(non_interactive: bool = False) -> str:
     """Interactive selection of git provider."""
     if non_interactive:
@@ -351,15 +363,6 @@ def require_apis_enabled(project_id: str, apis: list[str]) -> None:
         raise click.ClickException("Required APIs are not enabled.")
 
 
-@backoff.on_exception(
-    backoff.expo,
-    subprocess.CalledProcessError,
-    factor=2,
-    max_time=60,
-    on_backoff=lambda details: click.echo(
-        f"⚠️ Command failed, retrying in {details['wait']:.1f}s (attempt {details['tries']})"
-    ),
-)
 def run_command(
     cmd: list[str],
     *,
@@ -368,8 +371,9 @@ def run_command(
     capture_output: bool = False,
     input: str | None = None,
     env_vars: dict[str, str] | None = None,
+    retry: RetryConfig | None = DEFAULT_RETRY,
 ) -> subprocess.CompletedProcess:
-    """Run a command with backoff retries for CI/CD operations."""
+    """Run a command with optional backoff retries for CI/CD operations."""
     # Format command for display exactly like the old version
     cmd_str = shlex.join(cmd)
     click.echo(f"\n🔄 Running command: {cmd_str}")
@@ -382,18 +386,34 @@ def run_command(
         env = os.environ.copy()
         env.update(env_vars)
 
-    # Use run_resolved to get raw subprocess behavior (no ClickException)
-    result = run_resolved(
-        cmd,
-        check=check,
-        cwd=cwd,
-        capture_output=capture_output,
-        text=True,
-        input=input,
-        env=env,
-        encoding="utf-8",
-        errors="replace",
-    )
+    def _execute() -> subprocess.CompletedProcess[str]:
+        return run_resolved(
+            cmd,
+            check=check,
+            cwd=cwd,
+            capture_output=capture_output,
+            text=True,
+            input=input,
+            env=env,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+    if retry is not None:
+        retry_decorator = backoff.on_exception(
+            backoff.expo,
+            subprocess.CalledProcessError,
+            factor=retry.factor,
+            max_time=retry.max_time,
+            max_tries=retry.max_tries,
+            jitter=backoff.full_jitter,
+            on_backoff=lambda details: click.echo(
+                f"⚠️ Command failed, retrying in {details['wait']:.1f}s (attempt {details['tries']})"
+            ),
+        )
+        result = retry_decorator(_execute)()
+    else:
+        result = _execute()
 
     # Display output if captured
     if capture_output and result.stdout:
@@ -446,7 +466,9 @@ def is_github_authenticated() -> bool:
     """
     try:
         # Try to get the current user, which will fail if not authenticated
-        result = run_command(["gh", "auth", "status"], check=False, capture_output=True)
+        result = run_command(
+            ["gh", "auth", "status"], check=False, capture_output=True, retry=None
+        )
         return result.returncode == 0
     except Exception:
         return False
