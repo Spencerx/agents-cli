@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-31
+
+- Update to use A2A 1.0 throughout, with a compatibility layer for A2A 0.3 clients
+- Improve retry for Cloud Run deploy
+- Streamline retry handing for `infra cicd` command
+- Fix `npx skills` output formatting during setup and update
+- Print Cloud Logging URL at Agent Runtime deploy start
+- Add --concurrency and --header flags to eval generate/run
+- Tweak messages around `--session-type` when used with `agent_runtime`
+
 ## [1.2.1] - 2026-07-23
 
 - Fix an import problem on `uv sync` caused by a yanked `opentelemetry-resourcedetector-gcp` version

@@ -18,6 +18,14 @@ agents-cli eval generate --dataset tests/eval/datasets/custom-dataset.json --out
 agents-cli eval grade --metrics general_quality --traces custom_traces/
 ```
 
+### Deployed Agent
+
+By default, `eval generate` starts a local HTTP server to run your agent in, dispatches each case in parallel and then tears the server down. Pass `--url <base_url> --app-name <name>` to target an already-running or deployed agent instead.
+
+```bash
+agents-cli eval generate --url https://my-agent.run.app --app-name app
+```
+
 ## Dataset Format
 
 Each dataset file follows the Gemini Enterprise Agent Platform Evaluation

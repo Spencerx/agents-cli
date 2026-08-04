@@ -733,15 +733,15 @@ def create(
         session_type_supported_agents = ("adk",)
 
         if requires_session:
-            if final_deployment == "agent_runtime" and session_type:
-                console.print(
-                    "Error: --session-type cannot be used with agent_runtime deployment target. "
-                    "Agent Runtime handles session management internally.",
-                    style="bold red",
-                )
-                return
-
-            if final_deployment == "none":
+            if final_deployment == "agent_runtime":
+                final_session_type = "none"
+                if session_type:
+                    console.print(
+                        "Warning: --session-type cannot be used with agent_runtime deployment target, it will be unset. "
+                        "Agent Runtime handles session management internally.",
+                        style="yellow",
+                    )
+            elif final_deployment == "none":
                 final_session_type = "in_memory"
             elif final_deployment in ("cloud_run", "gke"):
                 if deployment_agent_name in session_type_supported_agents:

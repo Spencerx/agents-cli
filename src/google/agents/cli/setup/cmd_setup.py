@@ -353,7 +353,7 @@ def cmd_setup(*, workspace, skip_auth, dry_run, dev, interactive, skills_source,
     # ── Legacy Skills Detection ──
     _check_legacy_skills()
 
-    summary_lines = run_npx_skills(args, "Installing skills")
+    run_npx_skills(args, "Installing skills")
 
     # ── Antigravity skill links ──
     # Temporary until npx skills supports Antigravity's IDE / CLI / 2.0 paths:
@@ -392,12 +392,7 @@ def cmd_setup(*, workspace, skip_auth, dry_run, dev, interactive, skills_source,
         click.echo("  CLI:    Not installed (run: uv tool install google-agents-cli)")
 
     # Skills status
-    if summary_lines:
-        click.echo(f"  Skills: {summary_lines[0]}")
-        for line in summary_lines[1:]:
-            click.echo(f"          {line}")
-    else:
-        click.echo("  Skills: Installed")
+    click.echo("  Skills: Installed")
     click.echo(f"  Scope:  {scope}")
 
     click.echo()

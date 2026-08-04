@@ -354,7 +354,7 @@ def require_apis_enabled(project_id: str, apis: list[str]) -> None:
 @backoff.on_exception(
     backoff.expo,
     subprocess.CalledProcessError,
-    max_tries=3,
+    factor=2,
     max_time=60,
     on_backoff=lambda details: click.echo(
         f"⚠️ Command failed, retrying in {details['wait']:.1f}s (attempt {details['tries']})"

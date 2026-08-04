@@ -20,7 +20,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import backoff
 import click
 from rich.console import Console
 
@@ -469,12 +468,6 @@ def create_or_update_secret(secret_id: str, secret_value: str, project_id: str) 
     is_flag=True,
     default=False,
     help="Allow usage of a terraform config bucket that exists in a different GCP project. By default, this is disallowed to guard against bucket squatting attacks.",
-)
-@backoff.on_exception(
-    backoff.expo,
-    (subprocess.CalledProcessError, click.ClickException),
-    max_tries=3,
-    jitter=backoff.full_jitter,
 )
 def setup_cicd(
     *,

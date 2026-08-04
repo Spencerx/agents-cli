@@ -22,6 +22,10 @@ The output shows scores for each eval case against the configured metrics.
 # Run for a custom dataset and different metrics
 agents-cli eval generate --dataset tests/eval/datasets/custom-dataset.json --output custom_traces/
 agents-cli eval grade --metrics general_quality --traces custom_traces/
+
+# Evaluate a deployed agent instead of running one locally
+agents-cli eval generate --url https://my-agent.run.app --app-name app
+agents-cli eval grade
 ```
 
 ---

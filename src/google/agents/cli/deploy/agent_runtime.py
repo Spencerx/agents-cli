@@ -24,6 +24,7 @@ import datetime
 import json
 import logging
 import os
+import urllib.parse
 import warnings
 from pathlib import Path
 from typing import Any
@@ -170,6 +171,16 @@ def _get_resource_name_from_operation(operation_name: str) -> str:
     """
     resource_name, _, _ = operation_name.rpartition("/operations/")
     return resource_name
+
+
+def build_agent_engine_logs_url(operation_name: str, project: str) -> str:
+    """Build a Logs Explorer URL for the engine's logs, keyed off the LRO name."""
+    engine_id = _get_resource_name_from_operation(operation_name).split("/")[-1]
+    query = f'resource.labels.reasoning_engine_id="{engine_id}"'
+    encoded = urllib.parse.quote(query, safe="")
+    return (
+        f"https://console.cloud.google.com/logs/query;query={encoded}?project={project}"
+    )
 
 
 def write_deployment_metadata(
@@ -602,21 +613,18 @@ def deploy_agent_runtime(
     # Deploy (create or update)
     action = "Updating" if matching_agents else "Creating"
 
-    if no_wait:
-        click.echo(f"\n🚀 {action} agent: {display_name} (returning immediately)...")
-        operation = _start_and_record_operation(
-            client, config, matching_agents, project, location
-        )
-        click.echo(f"\n📋 Operation started: {operation.name}")
-        click.echo("   Check status with: agents-cli deploy --status")
-        return None
-
-    click.echo(f"\n🚀 {action} agent: {display_name} (this can take 5-10 minutes)...")
+    wait_note = "not waiting for completion" if no_wait else "this can take a few minutes"
+    click.echo(f"\n🚀 {action} agent: {display_name} ({wait_note})...")
 
     operation = _start_and_record_operation(
         client, config, matching_agents, project, location
     )
-    click.echo(f"   Operation: {operation.name}")
+    logs_url = build_agent_engine_logs_url(operation.name, project)
+
+    click.echo(f"   Operation: {operation.name}\n   Monitor deploy logs: {logs_url}")
+    if no_wait:
+        click.echo("   Check status with: agents-cli deploy --status")
+        return None
     click.echo(
         "   If this command is interrupted, run 'agents-cli deploy --status' to check progress."
     )
@@ -779,6 +787,9 @@ def check_agent_runtime_operation(
             seconds = int(delta.total_seconds() % 60)
             elapsed = f" ({minutes}m {seconds}s elapsed)"
 
-        click.echo(f"⏳ Deployment still in progress{elapsed}")
-        click.echo(f"   Operation: {operation_name}")
-        click.echo("   Run 'agents-cli deploy --status' again to check.")
+        click.echo(
+            f"⏳ Deployment still in progress{elapsed}\n"
+            f"   Operation: {operation_name}\n"
+            f"   Monitor deploy logs: {build_agent_engine_logs_url(operation_name, project)}\n"
+            "   Run 'agents-cli deploy --status' again to check."
+        )

@@ -21,7 +21,7 @@ from rich.console import Console
 
 from google.agents.cli._project import find_project_root
 from google.agents.cli.eval import _paths
-from google.agents.cli.eval.cmd_generate import cmd_generate
+from google.agents.cli.eval.cmd_generate import _DEFAULT_CONCURRENCY, cmd_generate
 from google.agents.cli.eval.cmd_grade import cmd_grade
 
 
@@ -88,10 +88,26 @@ from google.agents.cli.eval.cmd_grade import cmd_grade
 )
 @click.option(
     "--app-name",
-    default=None,
+    default="app",
     help=(
-        "Agent app name to use in the ADK URL path. Required with --url. "
+        "Agent app name to use in the ADK URL path. Defaults to 'app'. "
         "Forwarded to `eval generate`."
+    ),
+)
+@click.option(
+    "--concurrency",
+    type=click.IntRange(min=1),
+    default=_DEFAULT_CONCURRENCY,
+    show_default="number of CPU cores",
+    help=("Number of eval cases dispatched in parallel. Forwarded to `eval generate`."),
+)
+@click.option(
+    "--header",
+    "-H",
+    "custom_headers",
+    multiple=True,
+    help=(
+        "Custom HTTP header (format: 'Key: Value'). Repeatable. Forwarded to `eval generate`."
     ),
 )
 def cmd_run(
@@ -103,7 +119,9 @@ def cmd_run(
     project: str | None,
     region: str | None,
     url: str | None,
-    app_name: str | None,
+    app_name: str,
+    concurrency: int,
+    custom_headers: tuple[str, ...],
 ):
     """Chain `eval generate` and `eval grade` in one command.
 
@@ -140,6 +158,8 @@ def cmd_run(
         output=traces_file,
         url=url,
         app_name=app_name,
+        concurrency=concurrency,
+        custom_headers=custom_headers,
     )
 
     console.rule("[bold]Step 2/2: eval grade[/bold]")

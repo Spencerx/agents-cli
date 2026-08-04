@@ -195,10 +195,14 @@ _CLOUD_RUN_TRANSIENT_DEPLOY_SIGNATURES = (
     "artifactregistry.repositories.downloadArtifacts",
 )
 
-# Retry budget for transient Cloud Run deploy failures. Propagation can take a
-# few minutes, so we allow several attempts with exponential backoff + jitter.
-_CLOUD_RUN_DEPLOY_MAX_TRIES = 5
-_CLOUD_RUN_DEPLOY_MAX_TIME = 300
+# Retry budget for transient Cloud Run deploy failures. IAM propagation can take
+# several minutes, so we retry until max_time with a capped exponential backoff:
+# waits ramp 5s, 10s, 20s then hold at 30s (each full-jittered), i.e. steady
+# ~30s polling until the deadline. max_tries is unset so max_time is the sole
+# stop condition.
+_CLOUD_RUN_DEPLOY_MAX_TIME = 600
+_CLOUD_RUN_DEPLOY_BACKOFF_FACTOR = 5
+_CLOUD_RUN_DEPLOY_BACKOFF_MAX_VALUE = 30
 
 
 class _TransientCloudRunDeployError(click.ClickException):
@@ -212,15 +216,18 @@ class _TransientCloudRunDeployError(click.ClickException):
 @backoff.on_exception(
     backoff.expo,
     _TransientCloudRunDeployError,
-    max_tries=_CLOUD_RUN_DEPLOY_MAX_TRIES,
+    factor=_CLOUD_RUN_DEPLOY_BACKOFF_FACTOR,
+    max_value=_CLOUD_RUN_DEPLOY_BACKOFF_MAX_VALUE,
+    max_tries=None,
     max_time=_CLOUD_RUN_DEPLOY_MAX_TIME,
     jitter=backoff.full_jitter,
     on_backoff=lambda details: logging.warning(
         "Cloud Run deploy hit a transient IAM-propagation error; retrying in "
-        "%.0fs (attempt %d/%d)...",
+        "%.0fs (attempt %d, %.0fs/%ds elapsed)...",
         details["wait"],
         details["tries"] + 1,  # the upcoming attempt; details['tries'] = ones done
-        _CLOUD_RUN_DEPLOY_MAX_TRIES,
+        details["elapsed"],
+        _CLOUD_RUN_DEPLOY_MAX_TIME,
     ),
 )
 def _run_cloud_run_deploy_with_retry(args: list[str], *, project: str | None) -> None:

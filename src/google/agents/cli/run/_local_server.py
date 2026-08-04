@@ -63,6 +63,7 @@ def ensure_server(
     *,
     idle_timeout: int = _DEFAULT_IDLE_TIMEOUT,
     trace_to_cloud: bool = False,
+    use_in_memory_session: bool = True,
 ) -> ServerInfo:
     """Return a running local server's port, starting one if needed.
 
@@ -77,6 +78,10 @@ def ensure_server(
             stale and replaced.  Defaults to 30 minutes.
         trace_to_cloud: When ``True``, export traces to Cloud Trace.
             Only takes effect when a new server is started.
+        use_in_memory_session: Sets ``USE_IN_MEMORY_SESSION`` in the
+            server's env to ``true`` (default) or ``false``. Only takes
+            effect when a new server is started; a reused server keeps
+            whatever env it was started with.
 
     Returns:
         A :class:`ServerInfo` with the port and whether this call started
@@ -106,7 +111,13 @@ def ensure_server(
             _cleanup(project_root, info)
 
     port = _find_free_port()
-    pid = _start_server(project_root, agent_dir, port, trace_to_cloud=trace_to_cloud)
+    pid = _start_server(
+        project_root=project_root,
+        agent_dir=agent_dir,
+        port=port,
+        trace_to_cloud=trace_to_cloud,
+        use_in_memory_session=use_in_memory_session,
+    )
     _wait_for_port(project_root, port, pid=pid)
     _write_pid_file(project_root, pid=pid, port=port, trace_to_cloud=trace_to_cloud)
     click.secho(f"Local server started on port {port} (PID {pid})", dim=True)
@@ -165,37 +176,45 @@ def _find_free_port(
     )
 
 
-def _get_adk_command(project_root: Path) -> list[str]:
-    venv_dir = project_root / ".venv"
-    if sys.platform == "win32":
-        python_bin = venv_dir / "Scripts" / "python.exe"
-        if python_bin.exists():
-            return [str(python_bin), "-m", "google.adk.cli"]
-        return ["uv", "run", "python", "-m", "google.adk.cli"]
-
-    adk_bin = venv_dir / "bin" / "adk"
-    if adk_bin.exists():
-        return [str(adk_bin)]
-    return ["uv", "run", "adk"]
+def _has_fast_api_app(project_root: Path, agent_dir: str) -> bool:
+    return (project_root / agent_dir / "fast_api_app.py").is_file()
 
 
-def _start_server(
+def _build_serve_command(
+    *,
     project_root: Path,
     agent_dir: str,
     port: int,
-    *,
     trace_to_cloud: bool = False,
-) -> int:
-    """Start ``adk api_server`` as a detached background process.
+) -> list[str]:
+    """Return the command list for booting the local server.
 
-    Returns the PID.
+    Prefers running this projects `fast_api_app.py` under uvicorn when the file exists, otherwise falls back to `adk api_server`.
     """
-    adk_dir = project_root / _PID_DIR
-    adk_dir.mkdir(exist_ok=True)
-    log_path = adk_dir / _LOG_FILENAME
+    if _has_fast_api_app(project_root, agent_dir):
+        if trace_to_cloud:
+            logging.warning(
+                "--otel-to-cloud is ignored when booting %s/fast_api_app.py; "
+                "your fast_api_app.py controls telemetry via its own setup. "
+                "Remove fast_api_app.py to fall back to `adk api_server` with "
+                "the flag applied.",
+                agent_dir,
+            )
+        return [
+            "uv",
+            "run",
+            "uvicorn",
+            f"{agent_dir}.fast_api_app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
 
     cmd = [
-        *_get_adk_command(project_root),
+        "uv",
+        "run",
+        "adk",
         "api_server",
         "--host",
         "127.0.0.1",
@@ -207,11 +226,39 @@ def _start_server(
     if trace_to_cloud:
         cmd.append("--otel_to_cloud")
     cmd.append(".")
+    return cmd
 
-    # Use in-memory sessions locally so the server can start without
-    # cloud dependencies (e.g. Agent Runtime session type).
+
+def _start_server(
+    *,
+    project_root: Path,
+    agent_dir: str,
+    port: int,
+    trace_to_cloud: bool = False,
+    use_in_memory_session: bool = True,
+) -> int:
+    """Start the local server as a detached background process.
+
+    Returns the PID.
+
+    `use_in_memory_session` sets `USE_IN_MEMORY_SESSION` to `true` or `false`
+    in the child's env. `true` lets the server start without cloud dependencies
+    (e.g. Agent Runtime session type); `false` makes it use the agent's real
+    session service.
+    """
+    adk_dir = project_root / _PID_DIR
+    adk_dir.mkdir(exist_ok=True)
+    log_path = adk_dir / _LOG_FILENAME
+
+    cmd = _build_serve_command(
+        project_root=project_root,
+        agent_dir=agent_dir,
+        port=port,
+        trace_to_cloud=trace_to_cloud,
+    )
+
     env = os.environ.copy()
-    env.setdefault("USE_IN_MEMORY_SESSION", "true")
+    env["USE_IN_MEMORY_SESSION"] = "true" if use_in_memory_session else "false"
     env.setdefault("PYTHONUNBUFFERED", "1")
 
     log_file = open(log_path, "a", encoding="utf-8")

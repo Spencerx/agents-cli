@@ -19,11 +19,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from importlib import resources
 from pathlib import Path
 
 import click
@@ -41,16 +38,10 @@ from google.agents.cli._project import (
     require_agent_directory,
 )
 from google.agents.cli._remote import build_remote_headers
-from google.agents.cli._runner import run
 from google.agents.cli.eval import _paths
+from google.agents.cli.run._local_server import ensure_server, stop_server
 
-_INFERENCE_TIMEOUT = 600  # 10 minutes
-
-_INFERENCE_RUNNER = "_inference_runner.py"
-_INFERENCE_STAGE_DIR = ".agents-cli-scripts"
-
-# Number of eval cases dispatched in parallel by the HTTP path.
-_HTTP_CONCURRENCY = 4
+_DEFAULT_CONCURRENCY = min(32, (os.cpu_count() or 4))
 
 # Fallback root-agent name for the rewrite_model_author_events rewrite
 # when /app-info is unavailable.
@@ -214,8 +205,8 @@ def _parse_sse_event(event: dict) -> evals_types.AgentEvent:
 
 
 def run_case(
-    case: common.EvalCase,
     *,
+    case: common.EvalCase,
     base_url: str,
     app_name: str,
     headers: dict,
@@ -317,13 +308,14 @@ def _resolve_agents_metadata(url: str, app_name: str, headers: dict) -> tuple[st
 
 
 def _dispatch_cases(
-    eval_cases: list[common.EvalCase],
     *,
+    eval_cases: list[common.EvalCase],
     url: str,
     app_name: str,
     headers: dict,
     root_agent_name: str,
     agents_map: dict[str, evals_types.AgentConfig],
+    concurrency: int,
 ) -> tuple[list[common.EvalCase], list[tuple[int, str]]]:
     """Run all eval_cases over HTTP in parallel.
 
@@ -339,7 +331,7 @@ def _dispatch_cases(
         index: int, case: common.EvalCase
     ) -> tuple[int, common.EvalCase, str | None]:
         merged_case, err = run_case(
-            case,
+            case=case,
             base_url=url,
             app_name=app_name,
             headers=headers,
@@ -348,7 +340,7 @@ def _dispatch_cases(
         )
         return index, merged_case, err
 
-    with ThreadPoolExecutor(max_workers=_HTTP_CONCURRENCY) as pool:
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [pool.submit(_submit, i, case) for i, case in enumerate(eval_cases)]
         for fut in as_completed(futures):
             try:
@@ -373,11 +365,14 @@ def _dispatch_cases(
 
 
 def _run_http(
+    *,
     console: Console,
     url: str,
     app_name: str,
     eval_cases: list[dict],
     output_path: Path,
+    concurrency: int,
+    custom_headers: tuple[str, ...],
 ) -> None:
     """Run inference over HTTP against a running ADK server.
 
@@ -388,7 +383,7 @@ def _run_http(
       * zero cases succeed -> do not write any artifact, print a failure
         summary to stderr, exit 1.
     """
-    headers = build_remote_headers((), url)
+    headers = build_remote_headers(custom_headers, url)
     root_agent_name, agents_map = _resolve_agents_metadata(url, app_name, headers)
     console.print(f"[dim]Discovered root_agent_name={root_agent_name}[/dim]")
 
@@ -400,12 +395,13 @@ def _run_http(
         ) from exc
 
     successes, failures = _dispatch_cases(
-        typed_cases,
+        eval_cases=typed_cases,
         url=url,
         app_name=app_name,
         headers=headers,
         root_agent_name=root_agent_name,
         agents_map=agents_map,
+        concurrency=concurrency,
     )
 
     n_cases = len(eval_cases)
@@ -451,24 +447,6 @@ def _print_failure_summary(
         click.echo(f"  - {label}: {err}", err=True)
 
 
-def _stage_inference_runner(dest_dir: Path) -> Path:
-    """Copy the inference runner script into ``dest_dir``.
-
-    The runner is shipped as package data inside agents-cli; this helper
-    copies it into the user's project so ``uv run python <path>`` can
-    execute it inside the user's virtualenv.
-
-    Returns the destination path of the staged script.
-    """
-    runner_resource = resources.files("google.agents.cli.eval").joinpath(
-        _INFERENCE_RUNNER
-    )
-    dest_path = dest_dir / _INFERENCE_RUNNER
-    with resources.as_file(runner_resource) as src_path:
-        shutil.copy2(src_path, dest_path)
-    return dest_path
-
-
 # ---------------------------------------------------------------------------
 # Click command
 # ---------------------------------------------------------------------------
@@ -505,32 +483,55 @@ def _stage_inference_runner(dest_dir: Path) -> Path:
     help=(
         "URL of a running ADK agent to run inference against, e.g. a "
         "deployed Cloud Run / GKE URL or a locally-running server. When "
-        "set, agents-cli sends each case to the server over HTTP "
-        "(POST /apps/{app}/users/{user}/sessions + POST /run_sse) "
-        "instead of loading the agent in-process. Cases run in parallel."
+        "omitted, agents-cli runs the agent in a local HTTP server. In both "
+        "cases each evaluation case is sent to the server over HTTP (POST "
+        "/apps/{app}/users/{user}/sessions + POST /run_sse). Eval cases run "
+        "in parallel."
     ),
 )
 @click.option(
     "--app-name",
-    default=None,
+    default="app",
     help=(
         "Agent app name to use in the ADK URL path "
-        "(/apps/<app-name>/users/...). Required when --url is set. "
-        "Ignored otherwise."
+        "(/apps/<app-name>/users/...). Only used when --url is set. "
+        "Defaults to 'app'."
+    ),
+)
+@click.option(
+    "--concurrency",
+    type=click.IntRange(min=1),
+    default=_DEFAULT_CONCURRENCY,
+    show_default="number of CPU cores",
+    help=(
+        "Number of eval cases dispatched in parallel over HTTP. Each case "
+        "runs in its own session. Defaults to min(32, number of CPU cores),"
+        "falling back to 4 if that cannot be determined."
+    ),
+)
+@click.option(
+    "--header",
+    "-H",
+    "custom_headers",
+    multiple=True,
+    help=(
+        "Custom HTTP header (format: 'Key: Value'). Repeatable. Overrides auto-detected auth."
     ),
 )
 def cmd_generate(
+    *,
     dataset: str | None,
     output: str | None,
     url: str | None,
-    app_name: str | None,
+    app_name: str,
+    concurrency: int,
+    custom_headers: tuple[str, ...],
 ):
     """Generate agent traces by running inference over eval cases.
 
-    Reads an evaluation dataset, runs the project's local ADK agent (read from
-    `agent_directory` in agents-cli-manifest.yaml) over each eval case, and writes the
-    populated traces (agent responses + tool calls) ready for downstream
-    scoring with `agents-cli eval grade`.
+    Reads an evaluation dataset and runs the ADK agent over each case,
+    writing populated traces (agent responses + tool calls) ready for
+    downstream scoring with `agents-cli eval grade`. Eval cases run in parallel.
 
     Each eval case must provide one of:
       * a top-level ``prompt`` field (single user message), or
@@ -538,9 +539,8 @@ def cmd_generate(
         conversations where the next agent response should be appended
         (the "N+1" pattern).
 
-    When ``--url`` is set, cases are sent to the running ADK server over
-    HTTP; otherwise the local agent is loaded in-process via a staged
-    subprocess runner.
+    By default, tries to run the agent in a local HTTP server (project's `fast_api_app.py` if it exists, or `adk api_server`).
+    Pass `--url` to run against an already-running or deployed agent instead.
 
     \b
     Example:
@@ -548,12 +548,6 @@ def cmd_generate(
       agents-cli eval generate --url https://my-agent.run.app --app-name app
     """
     console = Console()
-    if url and not app_name:
-        raise click.UsageError(
-            "--app-name is required when --url is set. "
-            "Pass the server-side ADK app name (typically the directory "
-            "the agent was deployed from)."
-        )
     project_root = find_project_root()
     if not project_root:
         raise click.ClickException(
@@ -562,7 +556,6 @@ def cmd_generate(
         )
     cfg = read_project_config(str(project_root))
     require_agent_directory(cfg)
-    agent_path = str((project_root / cfg.agent_directory).resolve())
 
     if not dataset:
         default_dataset_path = project_root / _paths.DEFAULT_INPUT_DATASET
@@ -611,7 +604,6 @@ def cmd_generate(
     )
 
     if url:
-        assert app_name is not None
         _run_against_remote_server(
             console=console,
             eval_cases=eval_cases,
@@ -619,15 +611,19 @@ def cmd_generate(
             url=url,
             app_name=app_name,
             output_path=output_path,
+            concurrency=concurrency,
+            custom_headers=custom_headers,
         )
     else:
-        _run_in_process_evaluation(
+        _run_against_local_server(
             console=console,
             project_root=project_root,
             cfg=cfg,
-            agent_path=agent_path,
             dataset=dataset,
+            eval_cases=eval_cases,
             output_path=output_path,
+            concurrency=concurrency,
+            custom_headers=custom_headers,
         )
 
 
@@ -639,97 +635,53 @@ def _run_against_remote_server(
     url: str,
     app_name: str,
     output_path: Path,
+    concurrency: int,
+    custom_headers: tuple[str, ...],
 ) -> None:
     console.print(f"[bold]Target:[/bold] [cyan]{url}[/cyan]")
     console.print(f"[bold]Running inference on dataset:[/bold] [cyan]{dataset}[/cyan]")
-    _run_http(console, url, app_name, eval_cases, output_path)
+    _run_http(
+        console=console,
+        url=url,
+        app_name=app_name,
+        eval_cases=eval_cases,
+        output_path=output_path,
+        concurrency=concurrency,
+        custom_headers=custom_headers,
+    )
 
 
-def _run_in_process_evaluation(
+def _run_against_local_server(
     *,
     console: Console,
     project_root: Path,
     cfg: ProjectConfig,
-    agent_path: str,
     dataset: str,
+    eval_cases: list[dict],
     output_path: Path,
+    concurrency: int,
+    custom_headers: tuple[str, ...],
 ) -> None:
-    # In-process evaluation
-    console.print("[bold]Syncing eval dependencies...[/bold]")
-    # Capture (hide) the verbose uv output; run() folds it into the error if the
-    # sync fails, so the failure reason is still surfaced.
-    run(
-        ["uv", "sync", "--dev", "--extra", "eval"],
-        cwd=str(project_root),
-        check_err_msg="Failed to sync eval dependencies",
-        capture=True,
-        print_cmd=False,
-    )
-
+    """Run inference against a local ADK server booted for this command."""
+    local_app_name = cfg.agent_directory
+    console.print(f"[bold]Booting local ADK server (app_name={local_app_name})[/bold]")
     console.print(f"[bold]Running inference on dataset:[/bold] [cyan]{dataset}[/cyan]")
-    console.print(f"[bold]Using agent:[/bold] [cyan]{cfg.agent_directory}[/cyan]")
-
-    # Env for the inference subprocess. TQDM_DISABLE / LITELLM_LOG are already in
-    # os.environ (set by eval/__init__.py) and are inherited by the subprocess, so
-    # they aren't repeated here. Beyond unbuffering, we add PYTHONWARNINGS: the
-    # Vertex eval SDK leaves semaphores for its resource_tracker child to reap at
-    # shutdown, so we silence that separate child process's benign "leaked
-    # semaphore" warning. Appended so any user-set PYTHONWARNINGS is preserved.
-    resource_tracker_filter = "ignore::UserWarning:multiprocessing.resource_tracker"
-    existing_warnings = os.environ.get("PYTHONWARNINGS")
-    inference_env = {
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONWARNINGS": (
-            f"{existing_warnings},{resource_tracker_filter}"
-            if existing_warnings
-            else resource_tracker_filter
-        ),
-    }
-
-    stage_dir = project_root / _INFERENCE_STAGE_DIR
-    stage_dir_existed = stage_dir.exists()
-    stage_dir.mkdir(exist_ok=True)
-    script_path = _stage_inference_runner(stage_dir)
+    server_info = ensure_server(
+        project_root,
+        cfg.agent_directory,
+        use_in_memory_session=False,
+    )
+    local_url = f"http://127.0.0.1:{server_info.port}"
     try:
-        try:
-            run(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "-u",
-                    str(script_path),
-                    agent_path,
-                    dataset,
-                    str(output_path),
-                ],
-                cwd=str(project_root),
-                check_err_msg="Inference failed",
-                timeout=_INFERENCE_TIMEOUT,
-                env=inference_env,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise click.ClickException(
-                f"Inference timed out after {_INFERENCE_TIMEOUT}s. "
-                "The Vertex AI call may be hanging; check "
-                "GOOGLE_CLOUD_LOCATION in your .env."
-            ) from exc
+        console.print(f"[dim]Server ready at {local_url}[/dim]")
+        _run_http(
+            console=console,
+            url=local_url,
+            app_name=local_app_name,
+            eval_cases=eval_cases,
+            output_path=output_path,
+            concurrency=concurrency,
+            custom_headers=custom_headers,
+        )
     finally:
-        if not stage_dir_existed:
-            try:
-                shutil.rmtree(stage_dir)
-            except OSError as exc:
-                console.print(
-                    f"[yellow]Warning:[/yellow] could not clean up stage dir "
-                    f"{stage_dir}: {exc}"
-                )
-        else:
-            try:
-                script_path.unlink()
-            except OSError as exc:
-                console.print(
-                    f"[yellow]Warning:[/yellow] could not remove staged script "
-                    f"{script_path}: {exc}"
-                )
-
-    console.print(f"[bold green]Traces saved to:[/bold green] {output_path}")
+        stop_server(project_root)
