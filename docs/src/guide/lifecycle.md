@@ -41,7 +41,7 @@ The loop expands to eight phases when you walk through it slowly. Each phase has
 | 1 | **Scaffold** | Turn the spec into a production-shaped project (~72 files). | `scaffold create` | `google-agents-cli-scaffold` | [Templates](templates.md) |
 | 2 | **Build** | Write the agent body — model, instruction, tools, `App` wrapper. | — | `google-agents-cli-adk-code` | [Project Structure](project-structure.md) |
 | 3 | **Orchestrate** | Compose specialists when one agent grows into a team. | — | `google-agents-cli-adk-code` | [Project Structure](project-structure.md) |
-| 4 | **Evaluate** | Score the agent against a dataset before every deploy. | `eval generate`, `eval grade`, plus `eval dataset synthesize`, `eval compare`, `eval analyze`, `eval metric list`, and `eval optimize` | `google-agents-cli-eval` | [Evaluation](evaluation.md) |
+| 4 | **Evaluate** | Score the agent against a dataset before every deploy. | `eval run` (or `eval generate` + `eval grade`), plus `eval dataset synthesize`, `eval compare`, `eval analyze`, `eval metric list`, and `eval optimize` | `google-agents-cli-eval` | [Evaluation](evaluation.md) |
 | 5 | **Deploy** | Ship to Agent Runtime, Cloud Run, or GKE. | `deploy` | `google-agents-cli-deploy` | [Deployment](deployment.md) |
 | 6 | **Publish** | Register with Gemini Enterprise so other agents can find this one. | `publish` | `google-agents-cli-publish` | [CI/CD](cicd.md) |
 | 7 | **Observe** | Cloud Trace + BigQuery analytics; production data feeds tomorrow's dataset. | — | `google-agents-cli-observability` | [Observability](observability/index.md) |
@@ -130,11 +130,11 @@ When the team needs to span processes — or call agents your team doesn't own �
 
 ### 4 · Evaluate
 
-This is the phase most agent demos skip. `agents-cli eval generate` followed by `agents-cli eval grade` can execute your dataset against the live agent, ask an LLM judge to score each response against a rubric, and give you a number you can defend.
+This is the phase most agent demos skip. `agents-cli eval run` can execute your dataset against the live agent, ask an LLM judge to score each response against a rubric, and give you a number you can defend.
 
 <div id="lifecycle-anim-eval" class="lifecycle-anim" aria-label="Eval-fix loop — click 'apply fix' to see one case flip from failing to passing"></div>
 
-Expect 5–10+ iterations of the `agents-cli eval grade` loop. Every fix nudges the score, you re-run, you ship when it crosses the threshold. Below: the four failure modes the rubrics catch most often.
+Expect 5–10+ iterations of the `agents-cli eval run` loop. Every fix nudges the score, you re-run, you ship when it crosses the threshold. Below: the four failure modes the rubrics catch most often.
 
 <div id="lifecycle-anim-failures" class="lifecycle-anim" aria-label="Common agent failures and the eval rubric that catches each"></div>
 
@@ -202,7 +202,7 @@ See [Observability](observability/index.md) for the full setup.
     2. Run `agents-cli scaffold create … --agent adk --deployment-target agent_runtime` (RAG is a clone-and-study recipe — adapt a RAG sample; see [Templates](templates.md#rag-retrieval-augmented-generation))
     3. Author the agent body and tools
     4. Write dataset cases
-    5. Run `agents-cli eval generate` followed by `agents-cli eval grade` and iterate with `eval grade` until the score crosses threshold
+    5. Run `agents-cli eval run` and iterate until the score crosses threshold
     6. Run `agents-cli deploy`
     7. Wire up trace + analytics, hand you the URL
 
@@ -224,8 +224,7 @@ See [Observability](observability/index.md) for the full setup.
 
     # Phase 4: evaluate
     agents-cli eval dataset synthesize --count 10  # optional: cold-start a dataset
-    agents-cli eval generate
-    agents-cli eval grade                          # repeat until eval score crosses threshold
+    agents-cli eval run                            # repeat until eval score crosses threshold
     agents-cli eval compare prev.json latest.json  # confirm fixes actually helped
     agents-cli eval analyze --eval-result latest.json  # cluster remaining failures
     agents-cli eval optimize                       # optional: auto-tune prompts using eval data

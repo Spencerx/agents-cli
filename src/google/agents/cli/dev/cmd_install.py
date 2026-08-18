@@ -19,6 +19,7 @@ import shutil
 
 import click
 
+from google.agents.cli import _tools
 from google.agents.cli._project import find_project_root
 from google.agents.cli._runner import run
 
@@ -39,6 +40,9 @@ def cmd_install(clean: bool, locked: bool):
 
     Runs: uv sync
     """
+    # Resolve uv up front: --clean deletes the venv. Fail quickly here (before
+    # any destructive work) rather than when calling uv.
+    _tools.require_tool("uv")
     if clean:
         _delete_venv()
     cmd = ["uv", "sync"]

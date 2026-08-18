@@ -187,8 +187,7 @@ Each eval case defines a user message. The evaluation system sends the message t
 Run it:
 
 ```bash
-agents-cli eval generate
-agents-cli eval grade
+agents-cli eval run
 ```
 
 The output shows scores for each eval case against the configured metrics.
@@ -249,7 +248,7 @@ See the [Observability Guide](observability/index.md) for verification steps, fu
 | `agents-cli playground` | Started the ADK playground for interactive testing |
 | `agents-cli run "..."` | Tested the agent from the terminal |
 | Edited `agent.py` | Customized the persona and added a tool |
-| `agents-cli eval generate` followed by `agents-cli eval grade` | Validated agent behavior with structured evaluations |
+| `agents-cli eval run` | Validated agent behavior with structured evaluations |
 | `agents-cli deploy` | Deployed the agent to Google Cloud |
 | Trace explorer + content logs | Verified tracing and set up prompt-response logging |
 

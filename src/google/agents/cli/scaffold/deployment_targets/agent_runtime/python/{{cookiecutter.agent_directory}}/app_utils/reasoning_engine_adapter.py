@@ -25,8 +25,8 @@ packaged Agent Engine.
 import inspect
 import json
 
+from agentplatform.agent_engines.templates.adk import AdkApp
 from fastapi import FastAPI, HTTPException, Request, encoders, responses
-from vertexai.agent_engines.templates.adk import AdkApp
 
 from {{cookiecutter.agent_directory}}.app_utils import services
 

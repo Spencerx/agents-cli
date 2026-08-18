@@ -38,7 +38,7 @@ Single source of truth so eval commands stay consistent. Lifecycle stages:
       Consumed by:  ``eval analyze``
       Produced by:  ``eval grade``.
 
-All four file kinds share the SDK type ``vertexai.types.EvaluationDataset``
+All four file kinds share the SDK type ``agentplatform.types.EvaluationDataset``
 as a container, but they are NOT interchangeable: the populated fields
 differ by stage.
 """

@@ -432,6 +432,22 @@ def _run_cloud_run_deploy_with_retry(args: list[str], *, project: str | None) ->
     default=None,
     help="VPC network name in the target project for DNS peering (Agent Runtime, requires --network-attachment).",
 )
+@click.option(
+    "--agent-gateway-egress",
+    default=None,
+    help="Full resource name of an existing Agent Gateway to route the agent's "
+    "outbound traffic through (Agent Runtime). The gateway must have "
+    "governedAccessPath=AGENT_TO_ANYWHERE. Pass an empty value to unbind. "
+    "Omit the flag to leave the current binding alone.",
+)
+@click.option(
+    "--agent-gateway-ingress",
+    default=None,
+    help="Full resource name of an existing Agent Gateway to route the agent's "
+    "inbound traffic through (Agent Runtime). The gateway must have "
+    "governedAccessPath=CLIENT_TO_AGENT. Pass an empty value to unbind. "
+    "Omit the flag to leave the current binding alone.",
+)
 def cmd_deploy(
     *,
     project,
@@ -461,6 +477,8 @@ def cmd_deploy(
     dns_peering_domain,
     dns_peering_project,
     dns_peering_network,
+    agent_gateway_egress,
+    agent_gateway_ingress,
     build_args,
 ):
     """Deploy the agent.
@@ -550,6 +568,14 @@ def cmd_deploy(
             f"for Agent Runtime deployments (current target: {cfg.deployment_target})."
         )
 
+    if (agent_gateway_egress is not None or agent_gateway_ingress is not None) and (
+        cfg.deployment_target != "agent_runtime"
+    ):
+        raise click.ClickException(
+            "--agent-gateway-egress and --agent-gateway-ingress are only supported "
+            f"for Agent Runtime deployments (current target: {cfg.deployment_target})."
+        )
+
     if secrets and cfg.deployment_target not in ("agent_runtime", "cloud_run"):
         raise click.ClickException(
             "--secrets is only supported for Agent Runtime and Cloud Run deployments "
@@ -621,6 +647,14 @@ def cmd_deploy(
                         f"\n  DNS peering: {dc['domain']}"
                         f" → {dc['target_project']}/{dc['target_network']}"
                     )
+            for label, gateway in (
+                ("egress", agent_gateway_egress),
+                ("ingress", agent_gateway_ingress),
+            ):
+                if gateway:
+                    msg += f"\n  Agent Gateway {label}: {gateway}"
+                elif gateway is not None:
+                    msg += f"\n  Agent Gateway {label}: (cleared)"
             click.echo(msg)
             return
         deploy_agent_runtime(
@@ -634,6 +668,8 @@ def cmd_deploy(
             agent_identity=agent_identity,
             no_wait=no_wait,
             psc_interface_config=psc_interface_config,
+            agent_gateway_egress=agent_gateway_egress,
+            agent_gateway_ingress=agent_gateway_ingress,
             build_args=build_args,
             port=port,
             cpu=cpu,
@@ -694,7 +730,9 @@ def cmd_deploy(
         project_root = find_project_root() or "."
         env_var_map = read_project_dotenv(project_root)
         env_var_map.update(parse_key_value_pairs(update_env_vars))
-        env_var_map.setdefault("AGENT_VERSION", get_project_version(project_root))
+        # Skip the version read (and its warning) when the user has already supplied one.
+        if "AGENT_VERSION" not in env_var_map:
+            env_var_map["AGENT_VERSION"] = get_project_version(project_root)
         # Fail closed: ADK defaults content-in-spans to true; keep it off for bare deploys.
         env_var_map.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
 
@@ -1051,7 +1089,9 @@ def _deploy_gke(
     project_root = find_project_root() or Path.cwd()
     env_var_map = read_project_dotenv(project_root)
     env_var_map.update(parse_key_value_pairs(update_env_vars))
-    env_var_map.setdefault("AGENT_VERSION", get_project_version(project_root))
+    # Skip the version read (and its warning) when the user has already supplied one.
+    if "AGENT_VERSION" not in env_var_map:
+        env_var_map["AGENT_VERSION"] = get_project_version(project_root)
     # Fail closed: ADK defaults content-in-spans to true; keep it off for bare deploys.
     env_var_map.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
 
@@ -1131,10 +1171,10 @@ def _list_deployments(cfg: ProjectConfig, project: str | None, region: str) -> N
 
 
 def _list_agent_runtime_deployments(project: str | None, location: str) -> None:
-    """List Agent Runtime deployments via the Vertex AI SDK."""
+    """List Agent Runtime deployments via the Agent Platform SDK."""
     import warnings
 
-    import vertexai
+    import agentplatform
 
     from google.agents.cli.auth import get_adc_credentials
 
@@ -1149,7 +1189,7 @@ def _list_agent_runtime_deployments(project: str | None, location: str) -> None:
             "Could not determine GCP project. Pass --project or set a default project."
         )
 
-    client = vertexai.Client(project=project, location=location)
+    client = agentplatform.Client(project=project, location=location)
     agents = list(client.agent_engines.list())
 
     if not agents:

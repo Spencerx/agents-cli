@@ -21,13 +21,30 @@ used by enhance and upgrade commands. It provides:
 - get_language_config(): Get config dict for a language
 """
 
+import logging
 import pathlib
+import tomllib
 from typing import Any
+
+
+def _read_python_version(root: pathlib.Path) -> str:
+    """Return the ``[project].version`` from ``pyproject.toml`` or raise."""
+    pyproject_path = root / "pyproject.toml"
+    if not pyproject_path.exists():
+        raise FileNotFoundError(f"pyproject.toml not found in {root}")
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)  # PEP 621 [project] section
+    version = data.get("project", {}).get("version")
+    if version and isinstance(version, str):
+        return version
+    raise KeyError(f"no [project].version in {pyproject_path}")
+
 
 # =============================================================================
 # Language Configuration
 # =============================================================================
 # To add a new language, add an entry with the required keys.
+
 
 LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
     "python": {
@@ -39,6 +56,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_file": "agent.py",
         "agent_variable": "root_agent",
         "agent_in_subdirectory": False,
+        "version_reader": _read_python_version,
     },
     "go": {
         "lock_file": "go.sum",
@@ -49,6 +67,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_file": "agent.go",
         "agent_variable": "RootAgent",
         "agent_in_subdirectory": False,
+        "version_reader": None,
     },
     "java": {
         "lock_file": None,  # Maven doesn't have a separate lock file
@@ -60,6 +79,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_file_pattern": "**/Agent.java",
         "agent_variable": "ROOT_AGENT",
         "agent_in_subdirectory": True,  # Java uses package subdirectories
+        "version_reader": None,
     },
     "typescript": {
         "lock_file": "package-lock.json",
@@ -70,6 +90,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_file": "agent.ts",
         "agent_variable": "rootAgent",
         "agent_in_subdirectory": False,
+        "version_reader": None,
     },
 }
 
@@ -206,44 +227,31 @@ def get_project_version(
     project_dir: str | pathlib.Path,
     default_version: str = "0.0.0",
 ) -> str:
-    """Extract the project version field from pyproject.toml if it exists.
+    """Extract the project version, falling back to ``default_version``.
+    Dispatches on the project language to its config ``version_reader``. Languages with no reader take the default silently.
 
     Args:
         project_dir: The project root directory.
         default_version: The fallback version to return if not found.
-
     Returns:
         The extracted version string, or default_version.
     """
-    import logging
-    import tomllib
-    from pathlib import Path
+    from google.agents.cli._project import read_project_config
 
-    root = Path(project_dir)
-    pyproject_path = root / "pyproject.toml"
+    root = pathlib.Path(project_dir)
+    language = read_project_config(str(root)).language
+    reader = get_language_config(language).get("version_reader")
+    if reader is None:
+        return default_version
 
     try:
-        if not pyproject_path.exists():
-            raise FileNotFoundError(f"pyproject.toml not found in {project_dir}")
-
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        # Standard PEP 621 [project] section
-        version = data.get("project", {}).get("version")
-        if version and isinstance(version, str):
-            return version
-        else:
-            raise KeyError(
-                f"Could not find project version in pyproject.toml under {project_dir}"
-            )
+        return reader(root)
     except Exception as e:
         logging.warning(
-            "Could not read the project version from the [project].version field "
-            "of %s (%s). Falling back to %s — set the version in pyproject.toml, "
-            "or pass AGENT_VERSION via --update-env-vars to override.",
-            pyproject_path,
+            "Could not read the project version (%s). Falling back to %s — set "
+            "the version in your project, or pass AGENT_VERSION via "
+            "--update-env-vars to override.",
             e,
             default_version,
         )
-
     return default_version

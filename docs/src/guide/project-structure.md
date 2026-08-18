@@ -13,11 +13,10 @@ my-agent/
 ├── app/                          # Your agent code
 │   ├── __init__.py               # Registers the app (exports `app`)
 │   ├── agent.py                  # Agent definition — instructions, model, tools
-│   ├── fast_api_app.py           # FastAPI server — telemetry setup, feedback/A2A routes
+│   ├── fast_api_app.py           # FastAPI server — telemetry setup, A2A routes
 │   └── app_utils/                # Utilities
 │       ├── services.py           # Shared session & artifact services
-│       ├── a2a.py                # A2A route wiring
-│       └── typing.py             # Request/response Pydantic models
+│       └── a2a.py                # A2A route wiring
 │
 ├── tests/
 │   ├── eval/                     # Evaluation test cases

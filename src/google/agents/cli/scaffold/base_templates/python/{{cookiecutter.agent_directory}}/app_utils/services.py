@@ -24,12 +24,12 @@ from __future__ import annotations
 import functools
 import os
 
+{% if cookiecutter.session_type == "agent_platform_sessions" -%}
+from agentplatform import agent_engines
+{% endif -%}
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.adk.cli.service_registry import get_service_registry
 from google.adk.cli.utils.service_factory import create_session_service_from_options
-{%- if cookiecutter.session_type == "agent_platform_sessions" %}
-from vertexai import agent_engines
-{%- endif %}
 
 SESSION_SERVICE_URI = "shared://session"
 ARTIFACT_SERVICE_URI = "shared://artifact"

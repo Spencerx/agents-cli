@@ -936,6 +936,7 @@ def process_template(
     remote_spec: Any | None = None,
     google_cloud_project: str | None = None,
     bq_analytics: bool = False,
+    agent_gateway: bool = False,
     agent_guidance_filename: str = "GEMINI.md",
 ) -> None:
     """Process the template directory and create a new project.
@@ -955,6 +956,7 @@ def process_template(
         agent_garden: Whether this deployment is from Agent Garden
         google_cloud_project: Optional GCP project ID to populate .env file
         bq_analytics: Whether to include BigQuery Agent Analytics Plugin
+        agent_gateway: Whether the Dockerfile should trust the Agent Gateway root CA
     """
     logging.debug(f"Processing template from {template_dir}")
     logging.debug(f"Project name: {project_name}")
@@ -1278,6 +1280,7 @@ def process_template(
                 "java_package": java_vars.get("java_package", ""),
                 "java_package_path": java_vars.get("java_package_path", ""),
                 "bq_analytics": bq_analytics,
+                "agent_gateway": agent_gateway,
                 "wheel_gcs_uri": os.environ.get("WHEEL_GCS_URI", ""),
                 "agents_cli_version_pin": agents_cli_version_pin(),
                 "agent_guidance_filename": agent_guidance_filename,

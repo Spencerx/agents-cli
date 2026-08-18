@@ -24,11 +24,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
+from agentplatform import types
+from agentplatform._genai.types import common
+from agentplatform._genai.types import evals as evals_types
 from google.genai import types as genai_types
 from rich.console import Console
-from vertexai import types
-from vertexai._genai.types import common
-from vertexai._genai.types import evals as evals_types
 
 from google.agents.cli._adk_client import create_session, fetch_app_info, run_sse
 from google.agents.cli._project import (

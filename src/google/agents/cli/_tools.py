@@ -46,6 +46,8 @@ DEFAULT_INSTALL_HINTS = {
     "terraform": "Install Terraform (https://developer.hashicorp.com/terraform/downloads) and ensure it is in your PATH.",
     "gh": "Install the GitHub CLI (https://cli.github.com/) and ensure it is in your PATH.",
     "git": "Install Git (https://git-scm.com/downloads) and ensure it is in your PATH.",
+    "uv": "Install uv (https://docs.astral.sh/uv/getting-started/installation/) and ensure it is in your PATH.",
+    "uvx": "Install uv (https://docs.astral.sh/uv/getting-started/installation/) and ensure it is in your PATH.",
 }
 
 

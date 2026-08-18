@@ -44,6 +44,22 @@ ENV COMMIT_SHA=${COMMIT_SHA}
 ARG AGENT_VERSION=0.0.0
 ENV AGENT_VERSION=${AGENT_VERSION}
 
+{%- if cookiecutter.agent_gateway %}
+
+# Install the Agent Gateway root CA passed by the platform.
+# Based on https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/agent-gateway-runtime-deploy#configure-byoc
+ARG AGENT_GATEWAY_ROOT_CERTIFICATES
+RUN if [ -n "$AGENT_GATEWAY_ROOT_CERTIFICATES" ]; then \
+      mkdir -p /usr/local/share/ca-certificates; \
+      printf "%b\n" "$AGENT_GATEWAY_ROOT_CERTIFICATES" \
+        > /usr/local/share/ca-certificates/agent-gateway.crt; \
+      echo "Agent Gateway: installed $(grep -c 'BEGIN CERTIFICATE' /usr/local/share/ca-certificates/agent-gateway.crt) root certificate(s) to /usr/local/share/ca-certificates/agent-gateway.crt"; \
+    fi
+
+# If Agent Gateway root CA was provided, configure SSL/TLS trust paths.
+ENV NODE_EXTRA_CA_CERTS=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/usr/local/share/ca-certificates/agent-gateway.crt}
+{%- endif %}
+
 EXPOSE 8080
 
 # Use ADK devtools api_server with compiled JavaScript

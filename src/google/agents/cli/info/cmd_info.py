@@ -94,6 +94,7 @@ def cmd_info(as_json: bool) -> None:
         "installed_skills": installed_skills,
         "project_root": str(project_root),
         "project_name": cfg.project_name,
+        "language": cfg.language,
         "deployment_target": cfg.deployment_target,
         "agent_directory": cfg.agent_directory,
         "is_a2a": cfg.is_a2a,
@@ -111,6 +112,7 @@ def cmd_info(as_json: bool) -> None:
     click.echo()
     click.echo(f"Project root:       {project_root}")
     click.echo(f"Project name:       {cfg.project_name or '(not set)'}")
+    click.echo(f"Language:           {cfg.language}")
     click.echo(f"Deployment target:  {cfg.deployment_target}")
     click.echo(f"Agent directory:    {cfg.agent_directory}")
     click.echo(f"Region:             {cfg.region}")

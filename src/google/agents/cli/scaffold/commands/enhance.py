@@ -607,9 +607,14 @@ def _build_enhance_create_args(
     # ``deployment_target`` is exempt from the skip-sentinel check because
     # users legitimately switch targets via ``enhance --deployment-target X``
     # and the value happens to share a name with sentinel-skip patterns
-    # used elsewhere (e.g. "none", "skip").
+    # used elsewhere (e.g. "none", "skip"). ``agent_gateway`` is exempt
+    # because it is tri-state: False means "turn it off", not "unset".
     for key, value in cli_overrides.items():
-        if key != "deployment_target" and _should_skip_config_value(value):
+        if (
+            key != "deployment_target"
+            and key != "agent_gateway"
+            and _should_skip_config_value(value)
+        ):
             continue
 
         # base_template maps to --agent in the create command
@@ -630,7 +635,10 @@ def _build_enhance_create_args(
         # Add the override
         if value is True:
             args.append(arg_name)
-        elif value is not False and value is not None:
+        elif value is False:
+            # Only reachable for tri-state flags, which all declare a --no- form.
+            args.append(f"--no-{key.replace('_', '-')}")
+        elif value is not None:
             args.extend([arg_name, str(value)])
 
     return args
@@ -742,12 +750,17 @@ def _run_smart_merge(
     def _update_metadata(proj_dir: pathlib.Path, lang: str) -> None:
         if not cli_overrides:
             return
-        metadata_updates = {
+        metadata_updates: dict[str, Any] = {
             k: v
             for k, v in cli_overrides.items()
             if isinstance(v, str)
             and (k == "deployment_target" or not _should_skip_config_value(v))
         }
+        # agent_gateway is a bool, so it needs recording separately: the
+        # comprehension above only keeps strings (which keeps non-create_params
+        # overrides such as ``prototype`` out of the manifest).
+        if "agent_gateway" in cli_overrides:
+            metadata_updates["agent_gateway"] = cli_overrides["agent_gateway"]
         stale_keys = _stale_manifest_keys_for_target(cli_overrides, project_config)
 
         if metadata_updates or stale_keys:
@@ -846,6 +859,7 @@ def enhance(
     agent_directory: str | None,
     skip_welcome: bool = False,
     bq_analytics: bool = False,
+    agent_gateway: bool | None = None,
     agent_guidance_filename: str = "GEMINI.md",
 ) -> None:
     """Enhance your existing project with deployment, CI/CD, or RAG scaffolding.
@@ -881,13 +895,17 @@ def enhance(
         cli_override_args["prototype"] = prototype
     if agent_guidance_filename != "GEMINI.md":
         cli_override_args["agent_guidance_filename"] = agent_guidance_filename
+    if agent_gateway is not None:
+        cli_override_args["agent_gateway"] = agent_gateway
 
     # Smart-merge is the default when saved config exists (unless --force).
     # Skip if running in subprocess with saved config (subprocess re-execution
     # replays the same params, so smart-merge would compare identical templates).
     is_saved_config_subprocess = os.environ.get(_ENV_USING_SAVED_CONFIG) == "1"
     has_cli_overrides = any(
-        k == "deployment_target" or not _should_skip_config_value(v)
+        k == "deployment_target"
+        or k == "agent_gateway"
+        or not _should_skip_config_value(v)
         for k, v in cli_override_args.items()
     )
 
@@ -1365,6 +1383,7 @@ def enhance(
             "deployment_target": deployment_target,
             "cicd_runner": cicd_runner,
             "session_type": session_type,
+            "agent_gateway": agent_gateway,
         },
     )
 
@@ -1393,5 +1412,6 @@ def enhance(
         skip_welcome=True,  # Skip welcome message since enhance shows its own
         cli_overrides=final_cli_overrides if final_cli_overrides else None,
         bq_analytics=bq_analytics,
+        agent_gateway=effective_create_params["agent_gateway"],
         agent_guidance_filename=agent_guidance_filename,
     )

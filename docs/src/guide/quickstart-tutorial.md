@@ -94,8 +94,7 @@ Your coding agent activates the `google-agents-cli-eval` skill and:
 - Runs the evaluation:
 
 ```bash
-agents-cli eval generate
-agents-cli eval grade
+agents-cli eval run
 ```
 
 If cases fail, tell your coding agent what to fix:
@@ -104,7 +103,7 @@ If cases fail, tell your coding agent what to fix:
 
 Your coding agent adjusts the instruction, re-runs the evaluation, and iterates until quality thresholds pass.
 
-The eval surface goes beyond `generate` and `grade` — `eval dataset synthesize`, `eval compare`, `eval analyze`, and `eval optimize` cover synthetic case generation, regression diffing, failure clustering, and prompt auto-tuning. See the [Evaluation Guide](evaluation.md#beyond-generate-and-grade) for the full surface.
+The eval surface goes beyond `eval run`: `eval dataset synthesize`, `eval compare`, `eval analyze`, and `eval optimize` cover synthetic case generation, regression diffing, failure clustering, and prompt auto-tuning. See the [Evaluation Guide](evaluation.md#beyond-eval-run) for the full surface.
 
 ---
 

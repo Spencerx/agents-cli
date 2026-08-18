@@ -552,7 +552,7 @@ def write_merged_dependencies(
 
 def update_acli_metadata(
     project_dir: pathlib.Path,
-    create_params: dict[str, str],
+    create_params: dict[str, Any],
     acli_version: str | None = None,
     language: str = "python",
     remove_keys: list[str] | None = None,

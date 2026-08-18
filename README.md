@@ -77,8 +77,7 @@ See the [full tutorial](https://google.github.io/agents-cli/guide/quickstart-tut
 |---------|-------------|
 | `agents-cli setup` | Install CLI + skills to coding agents |
 | `agents-cli scaffold <name>` | Create a new agent project |
-| `agents-cli eval generate` | Run agent on eval dataset, produce traces |
-| `agents-cli eval grade` | Run agent evaluations on the traces |
+| `agents-cli eval run` | Run the agent over the eval dataset and grade the traces |
 | `agents-cli deploy` | Deploy to Google Cloud |
 | `agents-cli publish gemini-enterprise` | Register with Gemini Enterprise |
 
@@ -98,6 +97,7 @@ See the [full tutorial](https://google.github.io/agents-cli/guide/quickstart-tut
 | `agents-cli install` | Install project dependencies |
 | `agents-cli lint` | Run code quality checks (Ruff) |
 | **Evaluate** | |
+| `agents-cli eval run` | Run agent inference and grade the traces |
 | `agents-cli eval generate` | Run agent inference over eval cases |
 | `agents-cli eval grade` | Grade generated traces against metrics |
 | `agents-cli eval dataset synthesize` | Synthesize multi-turn eval scenarios for your local agent |

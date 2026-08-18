@@ -21,12 +21,12 @@ import re
 from pathlib import Path
 from typing import Any, Literal, get_args
 
+import agentplatform._genai.types.common as vertex_types
 import click
-import vertexai._genai.types.common as vertex_types
 import yaml
+from agentplatform._genai import _evals_visualization
+from agentplatform._genai._evals_constant import SUPPORTED_PREDEFINED_METRICS
 from rich.console import Console
-from vertexai._genai import _evals_visualization
-from vertexai._genai._evals_constant import SUPPORTED_PREDEFINED_METRICS
 
 Execution = Literal["local", "remote"]
 
@@ -168,6 +168,58 @@ def load_eval_config(config_path: str) -> tuple[list[str], dict]:
         ) from e
 
 
+def _defines_own_metric_body(custom_metric: dict[str, Any]) -> bool:
+    """True when a `custom_metrics` entry defines its own judge prompt or function.
+
+    An entry that defines neither is a parameterization of the built-in metric it
+    names, not a metric of its own.
+    """
+    return any(
+        key in custom_metric
+        for key in (
+            "prompt_template",
+            "custom_function",
+            "custom_function_file",
+            "remote_custom_function",
+        )
+    )
+
+
+def _is_sdk_computed_metric(name: str) -> bool:
+    """True for the computation-based metrics the SDK dispatches on the name itself.
+
+    `_transformers.t_metrics` special-cases `exact_match`, `bleu` and `rouge*`
+    ahead of the predefined branch, so they work while being absent from
+    SUPPORTED_PREDEFINED_METRICS.
+    """
+    lowered = name.lower()
+    return lowered in ("exact_match", "bleu") or lowered.startswith("rouge")
+
+
+def _resolve_predefined_metric_name(name: str) -> str | None:
+    """Resolves a built-in metric name to the version the service registers.
+
+    Every predefined name carries a version suffix, so the exact match only fires
+    when the caller already wrote one (`final_response_quality_v1`); otherwise the
+    bare name is matched against each registered version.
+    """
+    lowered = name.lower()
+    if lowered in SUPPORTED_PREDEFINED_METRICS:
+        return lowered
+    matches = [
+        match
+        for match in (
+            re.fullmatch(rf"{re.escape(lowered)}_v(\d+)", candidate)
+            for candidate in SUPPORTED_PREDEFINED_METRICS
+        )
+        if match
+    ]
+    if not matches:
+        return None
+    # Candidates are already lowercase, so the match is the registered name.
+    return max(matches, key=lambda m: int(m.group(1))).group(0)
+
+
 def prepare_eval_metrics(
     config_path: str | None,
     metrics_str: str | None,
@@ -199,7 +251,12 @@ def prepare_eval_metrics(
         for p_name in SUPPORTED_PREDEFINED_METRICS:
             base = re.sub(r"_v\d+$", "", p_name)
             predefined_names.add(base)
-        overlapping = set(custom_metrics_pool.keys()) & predefined_names
+        overlapping = {
+            name
+            for name in set(custom_metrics_pool.keys()) & predefined_names
+            if _defines_own_metric_body(custom_metrics_pool[name])
+            and name.lower() not in SUPPORTED_PREDEFINED_METRICS
+        }
         if overlapping:
             console.print(
                 f"[bold yellow]Warning:[/bold yellow] Custom metric [cyan]{', '.join(sorted(overlapping))}[/cyan] shares name with a built-in evaluation metric. The custom definition will override the built-in metric."
@@ -223,6 +280,30 @@ def prepare_eval_metrics(
     for m_name in requested_metrics:
         if m_name in custom_metrics_pool:
             m_dict = dict(custom_metrics_pool[m_name])
+            if "rubric_group_name" in m_dict:
+                raise click.ClickException(
+                    f"Custom metric '{m_name}': 'rubric_group_name' is not "
+                    "supported. To grade a case's 'rubric_groups', use a managed "
+                    "rubric metric (e.g. 'final_response_quality') and select the "
+                    "group with 'metric_spec_parameters.rubric_group_key'. To "
+                    "judge with your own 'prompt_template', drop "
+                    "'rubric_group_name'."
+                )
+            resolved_builtin = _resolve_predefined_metric_name(m_name)
+            if _defines_own_metric_body(m_dict):
+                if m_name.lower() == resolved_builtin:
+                    raise click.ClickException(
+                        f"Custom metric '{m_name}': that name is reserved by the "
+                        "eval service, which would ignore your definition. Rename "
+                        f"the metric (e.g. 'my_{m_name}')."
+                    )
+            elif resolved_builtin is None and not _is_sdk_computed_metric(m_name):
+                raise click.ClickException(
+                    f"Custom metric '{m_name}': needs a 'prompt_template' or "
+                    "'custom_function', unless the name is a built-in metric being "
+                    "parameterized. Run 'agents-cli eval metric list' for built-in "
+                    "names."
+                )
             try:
                 _resolve_custom_function_file(m_dict, m_name, config_path)
                 if "custom_function" in m_dict:
@@ -247,6 +328,8 @@ def prepare_eval_metrics(
                             f"{list(get_args(Execution))}."
                         )
                 else:
+                    if resolved_builtin and not _defines_own_metric_body(m_dict):
+                        m_dict["name"] = resolved_builtin
                     metrics.append(vertex_types.LLMMetric.model_validate(m_dict))
             except click.ClickException:
                 raise

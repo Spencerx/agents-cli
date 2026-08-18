@@ -36,6 +36,30 @@ COPY --from=builder /app/target/app.jar app.jar
 ARG COMMIT_SHA=""
 ENV COMMIT_SHA=${COMMIT_SHA}
 
+{%- if cookiecutter.agent_gateway %}
+
+# Install the Agent Gateway root CA passed by the platform.
+# Based on https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/agent-gateway-runtime-deploy#configure-byoc
+ARG AGENT_GATEWAY_ROOT_CERTIFICATES
+RUN if [ -n "$AGENT_GATEWAY_ROOT_CERTIFICATES" ]; then \
+      mkdir -p /usr/local/share/ca-certificates; \
+      printf "%b" "$AGENT_GATEWAY_ROOT_CERTIFICATES" \
+        | awk 'BEGIN {c=0} /BEGIN CERTIFICATE/ {c++} c > 0 { print > "/usr/local/share/ca-certificates/agw-" c ".crt" }'; \
+      update-ca-certificates; \
+      for crt in /usr/local/share/ca-certificates/agw-*.crt; do \
+        [ -e "$crt" ] || continue; \
+        keytool -importcert -noprompt -trustcacerts \
+          -alias "agent-gateway-$(basename "$crt" .crt)" \
+          -file "$crt" \
+          -keystore "$JAVA_HOME/lib/security/cacerts" \
+          -storepass changeit; \
+      done; \
+    fi
+
+# If Agent Gateway root CA was provided, configure SSL/TLS trust paths.
+ENV SSL_CERT_FILE=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/etc/ssl/certs/ca-certificates.crt}
+{%- endif %}
+
 EXPOSE 8080
 
 # Cloud Run sets PORT env var

@@ -663,7 +663,7 @@
 
     // Header
     host.appendChild(htmlEl("div", { class: "lc-eval__head" }, [
-      htmlEl("span", { class: "lc-mono" }, "$ agents-cli eval generate && agents-cli eval grade"),
+      htmlEl("span", { class: "lc-mono" }, "$ agents-cli eval run"),
       htmlEl("span", { class: "lc-muted" }, "3 cases"),
     ]));
 

@@ -127,6 +127,16 @@ def shared_template_options(f: Callable) -> Callable:
         help="Include BigQuery Agent Analytics Plugin for observability",
         default=False,
     )(f)
+    # None means "not specified" -- use the current value.
+    f = click.option(
+        "--agent-gateway/--no-agent-gateway",
+        default=None,
+        help=(
+            "Make the Dockerfile Agent Gateway-ready by trusting the gateway's "
+            "root CA (Agent Runtime only). Required before `agents-cli deploy "
+            "--agent-gateway-egress`"
+        ),
+    )(f)
     f = click.option(
         "--base-template",
         "-bt",
@@ -291,6 +301,7 @@ def create(
     locked: bool = False,
     cli_overrides: dict | None = None,
     bq_analytics: bool = False,
+    agent_gateway: bool | None = None,
     agent_guidance_filename: str = "GEMINI.md",
 ) -> None:
     """Create GCP-based AI agent projects from templates."""
@@ -710,6 +721,13 @@ def create(
     if debug:
         logging.debug(f"Selected deployment target: {final_deployment}")
 
+    if agent_gateway and final_deployment != "agent_runtime":
+        raise click.UsageError(
+            f"--agent-gateway is not supported for deployment target '{final_deployment}'.\n"
+            "  Agent Gateway can only be bound to Agent Runtime deployments.\n"
+            "  Use --deployment-target agent_runtime, or drop --agent-gateway."
+        )
+
     # Session type validation and selection (only for agents that require session management)
     final_session_type = session_type
 
@@ -898,6 +916,7 @@ def create(
             remote_spec=remote_spec,
             google_cloud_project=creds_info.get("project"),
             bq_analytics=bq_analytics,
+            agent_gateway=bool(agent_gateway),
             agent_guidance_filename=agent_guidance_filename,
         )
 

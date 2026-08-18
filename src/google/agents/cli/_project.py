@@ -41,6 +41,7 @@ class ProjectConfig:
     language: str = "python"
     session_type: str = "none"
     cicd_runner: str = "skip"
+    agent_gateway: bool = False
     agent_guidance_filename: str = "GEMINI.md"
 
     @property
@@ -50,6 +51,7 @@ class ProjectConfig:
             "is_a2a": self.is_a2a,
             "session_type": self.session_type,
             "cicd_runner": self.cicd_runner,
+            "agent_gateway": self.agent_gateway,
             "agent_guidance_filename": self.agent_guidance_filename,
         }
 
@@ -77,6 +79,7 @@ class ProjectConfig:
             "deployment_target", cfg.deployment_target
         )
         cfg.is_a2a = create_params.get("is_a2a", cfg.is_a2a)
+        cfg.agent_gateway = create_params.get("agent_gateway", cfg.agent_gateway)
 
         return cfg
 

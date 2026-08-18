@@ -18,12 +18,12 @@ import glob
 import os
 from pathlib import Path
 
+import agentplatform
 import click
-import vertexai
-from rich.console import Console
-from vertexai._genai.types.common import (
+from agentplatform._genai.types.common import (
     EvaluationDataset,
 )
+from rich.console import Console
 
 import google.agents.cli._gcp_project as _gcp_project
 import google.agents.cli._project as _project
@@ -185,9 +185,11 @@ def cmd_grade(
         if needs_gcp:
             resolved_project = _gcp_project.resolve_gcp_project(project, required=True)
             resolved_region = resolve_eval_region(region)
-            client = vertexai.Client(project=resolved_project, location=resolved_region)
+            client = agentplatform.Client(
+                project=resolved_project, location=resolved_region
+            )
         else:
-            client = vertexai.Client(project=None, location=None)
+            client = agentplatform.Client(project=None, location=None)
         result = client.evals.evaluate(dataset=merged_dataset, metrics=metrics)
 
         _print_results_table(result, console)

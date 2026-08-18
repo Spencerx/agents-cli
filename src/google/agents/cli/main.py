@@ -26,7 +26,6 @@ import traceback
 
 import click
 
-from google.agents.cli import _tools
 from google.agents.cli.__init__ import __version__
 from google.agents.cli._click import LazyGroup, patch_source_in_help
 from google.agents.cli._project import is_project_moved
@@ -87,8 +86,7 @@ def main():
       agents-cli setup                 Install skills to your coding agent
       agents-cli create my-agent       Create a new agent project
       agents-cli playground            Start the local playground
-      agents-cli eval generate         Run agent inference over eval cases
-      agents-cli eval grade            Grade generated traces
+      agents-cli eval run              Run agent inference and grade the traces
       agents-cli scaffold enhance .    Add deployment/CI-CD to a project
       agents-cli deploy                Deploy the agent
     """
@@ -102,7 +100,6 @@ def main():
 
     display_update_message()
     check_skills_version()
-    _tools.require_tool("uv")
 
 
 # Setup commands

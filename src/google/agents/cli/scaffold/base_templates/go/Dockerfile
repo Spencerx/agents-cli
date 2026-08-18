@@ -30,6 +30,19 @@ COPY agent/ ./agent/
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o /agent .
 
+{%- if cookiecutter.agent_gateway %}
+
+# Install the Agent Gateway root CA passed by the platform.
+# Based on https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/agent-gateway-runtime-deploy#configure-byoc
+ARG AGENT_GATEWAY_ROOT_CERTIFICATES
+RUN if [ -n "$AGENT_GATEWAY_ROOT_CERTIFICATES" ]; then \
+      mkdir -p /usr/local/share/ca-certificates; \
+      printf "%b" "$AGENT_GATEWAY_ROOT_CERTIFICATES" \
+        | awk 'BEGIN {c=0} /BEGIN CERTIFICATE/ {c++} c > 0 { print > "/usr/local/share/ca-certificates/agw-" c ".crt" }'; \
+      update-ca-certificates; \
+    fi
+{%- endif %}
+
 # Runtime stage
 FROM gcr.io/distroless/static-debian12
 
@@ -37,6 +50,14 @@ COPY --from=builder /agent /agent
 
 ARG COMMIT_SHA=""
 ENV COMMIT_SHA=${COMMIT_SHA}
+
+{%- if cookiecutter.agent_gateway %}
+
+# If Agent Gateway root CA was provided, configure SSL/TLS trust paths.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/agent-gateway-ca-certificates.crt
+ARG AGENT_GATEWAY_ROOT_CERTIFICATES
+ENV SSL_CERT_FILE=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/etc/ssl/certs/agent-gateway-ca-certificates.crt}
+{%- endif %}
 
 EXPOSE 8080
 

@@ -24,18 +24,28 @@ import datetime
 import json
 import logging
 import os
+import re
 import urllib.parse
 import warnings
 from pathlib import Path
 from typing import Any
 
+import agentplatform
 import click
 import pathspec
-import vertexai
+from agentplatform._genai import _agent_engines_utils
+from agentplatform._genai.types import (
+    AgentEngine,
+    AgentEngineConfig,
+    IdentityType,
+    ReasoningEngineSpecDeploymentSpecAgentGatewayConfig,
+    ReasoningEngineSpecDeploymentSpecAgentGatewayConfigAgentToAnywhereConfig,
+    ReasoningEngineSpecDeploymentSpecAgentGatewayConfigClientToAgentConfig,
+    UpdateAgentEngineConfigDict,
+)
 from google.cloud import resourcemanager_v3
+from google.genai.errors import APIError
 from google.iam.v1 import iam_policy_pb2, policy_pb2
-from vertexai._genai import _agent_engines_utils
-from vertexai._genai.types import AgentEngine, AgentEngineConfig, IdentityType
 
 from google.agents.cli._agent_runtime_a2a import build_agent_runtime_a2a_card_url
 from google.agents.cli._project import (
@@ -108,9 +118,10 @@ def _build_runtime_env_vars(
     The backend defaults to Vertex AI (at ``GOOGLE_CLOUD_LOCATION=global``) unless
     the ``.env`` supplies an AI Studio API key:
 
-    - ``AGENT_VERSION`` — the pyproject.toml version, read at runtime by the A2A
-      agent card. Read only when the user hasn't supplied a value, so an override
-      skips the pyproject read and its missing-version warning.
+    - ``AGENT_VERSION`` — the project version (parsed from correct manifest file
+      ex. pyproject.toml or fallback value), read at runtime by the A2A agent card.
+      Read only when the user hasn't supplied a value, so an override skips
+      the read and its missing-version warning.
     - ``PORT`` — the container port, when one is supplied.
     - telemetry toggles — Cloud Trace export and prompt/response capture in spans.
     """
@@ -126,6 +137,7 @@ def _build_runtime_env_vars(
             reserved,
         )
         del env_vars[reserved]
+    # Skip the version read (and its warning) when the user has already supplied one.
     if "AGENT_VERSION" not in env_vars:
         env_vars["AGENT_VERSION"] = get_project_version(find_project_root() or Path.cwd())
     if port:
@@ -276,6 +288,91 @@ def setup_agent_identity(client: Any, project: str, display_name: str) -> Any:
     return agent
 
 
+_GATEWAY_RESOURCE_RE = re.compile(r"^projects/[^/]+/locations/[^/]+/agentGateways/[^/]+$")
+
+# Update mask paths for Agent Gateway-related fields.
+_AG_UPDATE_MASK_PATH = "spec.deployment_spec.agent_gateway_config"
+_AG_EGRESS_UPDATE_MASK_PATH = f"{_AG_UPDATE_MASK_PATH}.agent_to_anywhere_config"
+_AG_INGRESS_UPDATE_MASK_PATH = f"{_AG_UPDATE_MASK_PATH}.client_to_agent_config"
+
+
+def _validate_gateway_name(gateway: str, *, name: str) -> str:
+    """Check that the value looks like an Agent Gateway resource name."""
+    if not _GATEWAY_RESOURCE_RE.match(gateway):
+        raise click.ClickException(
+            f"Invalid value for {name}: {gateway!r}.\n"
+            "  Expected a full Agent Gateway resource name:\n"
+            "    projects/PROJECT/locations/LOCATION/agentGateways/GATEWAY"
+        )
+    return gateway
+
+
+def _require_gateway_ready_project(cfg: ProjectConfig) -> None:
+    """Check the project was scaffolded with Agent Gateway support."""
+    if not cfg.agent_gateway:
+        raise click.ClickException(
+            "This project was not scaffolded with Agent Gateway support.\n"
+            "  An egress gateway terminates TLS, so the image must trust its root CA.\n"
+            "  Add that setup to the Dockerfile:\n"
+            "    agents-cli scaffold enhance . --agent-gateway"
+        )
+
+
+def _build_agent_gateway_config(
+    *, egress_gateway_name: str | None, ingress_gateway_name: str | None
+) -> ReasoningEngineSpecDeploymentSpecAgentGatewayConfig | None:
+    """Build the reasoning engine's ``agent_gateway_config``."""
+    if egress_gateway_name is None and ingress_gateway_name is None:
+        return None
+
+    egress = ingress = None
+    if egress_gateway_name:
+        egress = ReasoningEngineSpecDeploymentSpecAgentGatewayConfigAgentToAnywhereConfig(
+            agent_gateway=_validate_gateway_name(
+                egress_gateway_name, name="egress gateway"
+            )
+        )
+    if ingress_gateway_name:
+        ingress = ReasoningEngineSpecDeploymentSpecAgentGatewayConfigClientToAgentConfig(
+            agent_gateway=_validate_gateway_name(
+                ingress_gateway_name, name="ingress gateway"
+            )
+        )
+    return ReasoningEngineSpecDeploymentSpecAgentGatewayConfig(
+        agent_to_anywhere_config=egress,
+        client_to_agent_config=ingress,
+    )
+
+
+def _validate_agent_identity(
+    *, agent: Any, agent_identity: bool, display_name: str
+) -> None:
+    """Report a mismatch between ``--agent-identity`` and an existing agent."""
+    spec = getattr(agent.api_resource, "spec", None)
+    has_agent_identity = (
+        getattr(spec, "identity_type", None) == IdentityType.AGENT_IDENTITY
+    )
+    if has_agent_identity and not agent_identity:
+        logging.warning(
+            "Agent '%s' was created with Agent Identity, but --agent-identity "
+            "was not passed. Identity type cannot be changed after creation, so "
+            "the agent keeps it and still runs as its own principal. Pass "
+            "--agent-identity to make that explicit.",
+            display_name,
+        )
+        return
+    elif agent_identity and not has_agent_identity:
+        raise click.ClickException(
+            f"Agent '{display_name}' already exists without Agent Identity, and "
+            "identity type cannot be changed after creation.\n"
+            "  The API would accept --agent-identity here and silently ignore it.\n"
+            "  To get an agent with Agent Identity, either:\n"
+            f"    • Deploy under a new name:  --service-name {display_name}-v2\n"
+            f"    • Delete the existing agent and redeploy:  agents-cli deploy "
+            "--agent-identity"
+        )
+
+
 # agent_runtime switched from reasoning-engine introspection to a container
 # build (which requires a Dockerfile) in this release. Projects scaffolded
 # before it never shipped a Dockerfile, so a missing one means the project
@@ -364,6 +461,23 @@ def _packaged_files(root: Path) -> list[str]:
     return files
 
 
+def _adk_python_class_methods() -> list[dict[str, str]]:
+    """Runtime contract exposed by the ADK Python Agent.
+
+    Required to query the agent using Vertex SDK after deployment.
+    """
+    from vertexai.agent_engines.templates.adk import AdkApp
+
+    # register_operations returns the same, hardcoded list for any instance of AdkApp
+    # so we can just use object.__new__ to create a dummy instance.
+    operations = AdkApp.register_operations(object.__new__(AdkApp))
+    return [
+        {"name": name, "api_mode": api_mode}
+        for api_mode, names in operations.items()
+        for name in names
+    ]
+
+
 def deploy_agent_runtime(
     *,
     cfg: ProjectConfig,
@@ -384,6 +498,8 @@ def deploy_agent_runtime(
     agent_identity: bool = False,
     no_wait: bool = False,
     psc_interface_config: dict | None = None,
+    agent_gateway_egress: str | None = None,
+    agent_gateway_ingress: str | None = None,
     build_args: str | None = None,
     port: int | None = None,
 ) -> AgentEngine | None:
@@ -410,6 +526,11 @@ def deploy_agent_runtime(
         psc_interface_config: PSC interface configuration dict for private
             VPC connectivity. Contains ``network_attachment`` and optionally
             ``dns_peering_configs``.
+        agent_gateway_egress: Agent Gateway to route outbound traffic through.
+            A full gateway resource name binds it, an empty value unbinds it,
+            and ``None`` leaves the current binding untouched.
+        agent_gateway_ingress: Agent Gateway to route inbound traffic through,
+            with the same three states as ``agent_gateway_egress``.
         build_args: Comma-separated KEY=VALUE build args.
         port: Container port.
 
@@ -437,10 +558,17 @@ def deploy_agent_runtime(
             "Dockerfile is present but excluded by .gcloudignore/.gitignore.\n"
             "  Remove the matching ignore pattern so the deploy can package it."
         )
+    # Only binding an egress gateway needs the CA; an empty value unbinds.
+    if agent_gateway_egress:
+        _require_gateway_ready_project(cfg)
 
     # Parse CLI environment variables, secrets, and labels
     secrets = parse_secrets(set_secrets)
     labels_dict = parse_key_value_pairs(labels)
+    agent_gateway_config = _build_agent_gateway_config(
+        egress_gateway_name=agent_gateway_egress,
+        ingress_gateway_name=agent_gateway_ingress,
+    )
 
     env_vars = _build_runtime_env_vars(
         set_env_vars=set_env_vars,
@@ -448,14 +576,14 @@ def deploy_agent_runtime(
         port=port,
     )
 
-    # Initialize vertexai client
+    # Initialize agentplatform client
     http_options = {"api_version": "v1beta1"} if agent_identity else None
-    client = vertexai.Client(
+    client = agentplatform.Client(
         project=project,
         location=location,
         http_options=http_options,
     )
-    vertexai.init(project=project, location=location)
+    agentplatform.init(project=project, location=location)
 
     # Check for existing agent
     existing_agents = list(client.agent_engines.list())
@@ -469,6 +597,13 @@ def deploy_agent_runtime(
     # creates a bare identity agent (no deployment spec), but it's still a
     # first-time spec deploy so the conservative defaults must apply.
     is_update = bool(matching_agents)
+
+    if matching_agents:
+        _validate_agent_identity(
+            agent=matching_agents[0],
+            agent_identity=agent_identity,
+            display_name=display_name,
+        )
 
     # Setup agent identity on first deployment
     if agent_identity and not matching_agents:
@@ -560,6 +695,15 @@ def deploy_agent_runtime(
                     f"{dc.get('domain', '')} → {dc.get('target_project', '')}/{dc.get('target_network', '')}",
                 )
             )
+    if agent_gateway_config:
+        if agent_gateway_egress is not None:
+            egress_cfg = agent_gateway_config.agent_to_anywhere_config
+            new_val = egress_cfg.agent_gateway if egress_cfg else "(cleared)"
+            params.append(("Agent Gateway (egress)", new_val))
+        if agent_gateway_ingress is not None:
+            ingress_cfg = agent_gateway_config.client_to_agent_config
+            new_val = ingress_cfg.agent_gateway if ingress_cfg else "(cleared)"
+            params.append(("Agent Gateway (ingress)", new_val))
     if port:
         params.append(("Port", port))
     if build_args:
@@ -605,8 +749,13 @@ def deploy_agent_runtime(
     # reasoning_engine contract), matching the terraform deploy path.
     config_kwargs["agent_framework"] = "google-adk"
 
+    config_kwargs["class_methods"] = _adk_python_class_methods()
+
     if psc_interface_config is not None:
         config_kwargs["psc_interface_config"] = psc_interface_config
+
+    if agent_gateway_config is not None:
+        config_kwargs["agent_gateway_config"] = agent_gateway_config
 
     config = AgentEngineConfig(**config_kwargs)
 
@@ -617,7 +766,13 @@ def deploy_agent_runtime(
     click.echo(f"\n🚀 {action} agent: {display_name} ({wait_note})...")
 
     operation = _start_and_record_operation(
-        client, config, matching_agents, project, location
+        client=client,
+        config=config,
+        matching_agents=matching_agents,
+        project=project,
+        location=location,
+        agent_gateway_egress=agent_gateway_egress,
+        agent_gateway_ingress=agent_gateway_ingress,
     )
     logs_url = build_agent_engine_logs_url(operation.name, project)
 
@@ -674,21 +829,15 @@ def deploy_agent_runtime(
     return remote_agent
 
 
-def _start_deploy_operation(
+def _create_api_config(
+    *,
     client: Any,
     config: AgentEngineConfig,
-    matching_agents: list[Any],
     action: str,
-) -> Any:
-    """Start a create or update operation without waiting for completion.
-
-    Replicates the first half of the public create()/update() methods —
-    builds the API config and fires the request — but skips the blocking
-    ``_await_operation()`` call.
-
-    Returns:
-        An ``AgentEngineOperation`` with ``.name`` and ``.done`` fields.
-    """
+    agent_gateway_egress: str | None,
+    agent_gateway_ingress: str | None,
+) -> UpdateAgentEngineConfigDict:
+    """Create a config for create/update operations with a patched update mask."""
     api_config = client.agent_engines._create_config(
         mode=action,
         display_name=config.display_name,
@@ -708,32 +857,63 @@ def _start_deploy_operation(
         identity_type=config.identity_type,
         agent_framework=config.agent_framework,
         psc_interface_config=config.psc_interface_config,
+        agent_gateway_config=config.agent_gateway_config,
         image_spec=config.image_spec,
     )
 
-    if matching_agents:
-        return client.agent_engines._update(
-            name=matching_agents[0].api_resource.name,
-            config=api_config,
-        )
-    return client.agent_engines._create(config=api_config)
+    # _create_config can only generate a config that updates both gateways at once,
+    # we need to patch the update mask with more granular paths.
+    if api_config.get("update_mask"):
+        paths = [
+            p for p in api_config["update_mask"].split(",") if p != _AG_UPDATE_MASK_PATH
+        ]
+        if agent_gateway_egress is not None:
+            paths.append(_AG_EGRESS_UPDATE_MASK_PATH)
+        if agent_gateway_ingress is not None:
+            paths.append(_AG_INGRESS_UPDATE_MASK_PATH)
+        api_config["update_mask"] = ",".join(paths)
+
+    return api_config
 
 
 def _start_and_record_operation(
+    *,
     client: Any,
     config: AgentEngineConfig,
     matching_agents: list[Any],
     project: str,
     location: str,
+    agent_gateway_egress: str | None,
+    agent_gateway_ingress: str | None,
 ) -> Any:
     """Start the create/update operation and persist it so ``deploy --status``
     can recover it if the command is interrupted."""
-    operation = _start_deploy_operation(
-        client,
-        config,
-        matching_agents,
-        action="update" if matching_agents else "create",
+    action = "update" if matching_agents else "create"
+    api_config = _create_api_config(
+        client=client,
+        config=config,
+        action=action,
+        agent_gateway_egress=agent_gateway_egress,
+        agent_gateway_ingress=agent_gateway_ingress,
     )
+    try:
+        if matching_agents:
+            operation = client.agent_engines._update(
+                name=matching_agents[0].api_resource.name,
+                config=api_config,
+            )
+        else:
+            operation = client.agent_engines._create(config=api_config)
+    except APIError as exc:
+        raise click.ClickException(
+            f"Agent Runtime {action} request failed — "
+            f"{exc.code} {exc.status}: {exc.message}"
+        ) from exc
+    except Exception as exc:
+        raise click.ClickException(
+            f"Agent Runtime {action} request failed — {type(exc).__name__}: {exc}"
+        ) from exc
+
     write_operation(
         operation_name=operation.name,
         project=project,
@@ -760,7 +940,7 @@ def check_agent_runtime_operation(
     location = location if location != "us-east1" else op_data.get("location", location)
     started_at = op_data.get("started_at", "")
 
-    client = vertexai.Client(project=project, location=location)
+    client = agentplatform.Client(project=project, location=location)
     operation = client.agent_engines._get_agent_operation(
         operation_name=operation_name,
     )

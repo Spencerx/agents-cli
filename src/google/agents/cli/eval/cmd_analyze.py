@@ -22,11 +22,11 @@ import re
 import traceback
 from pathlib import Path
 
+import agentplatform
 import click
-import vertexai
+from agentplatform._genai import _evals_visualization
 from rich.console import Console
 from rich.table import Table
-from vertexai._genai import _evals_visualization
 
 from google.agents.cli._gcp_project import resolve_gcp_project
 from google.agents.cli._project import (
@@ -109,7 +109,9 @@ def cmd_analyze(
         metadata = eval_result_data.get("metadata")
         if isinstance(metadata, dict):
             metadata.pop("dataset", None)
-        eval_result = vertexai.types.EvaluationResult.model_validate(eval_result_data)
+        eval_result = agentplatform.types.EvaluationResult.model_validate(
+            eval_result_data
+        )
     except Exception as e:
         raise click.ClickException(
             f"Failed to parse evaluation results JSON file '{eval_result_path}': {e}"
@@ -128,7 +130,9 @@ def cmd_analyze(
     resolved_location = "global"
 
     try:
-        client = vertexai.Client(project=resolved_project, location=resolved_location)
+        client = agentplatform.Client(
+            project=resolved_project, location=resolved_location
+        )
     except Exception as e:
         raise click.ClickException(f"Failed to instantiate Vertex AI Client: {e}") from e
 

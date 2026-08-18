@@ -79,8 +79,7 @@ Add and remove dependencies with [uv](https://docs.astral.sh/uv/):
 Run structured evaluations to validate agent behavior. This uses the [GenAI Eval SDK](https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/evaluation/agent-evaluation) under the hood.
 
 ```bash
-agents-cli eval generate
-agents-cli eval grade
+agents-cli eval run
 ```
 
 Expect **5-10+ iterations** of the eval-fix loop before your agent consistently passes. Start with 1-2 core eval cases, fix failures, then expand coverage.
@@ -91,7 +90,7 @@ See the [Evaluation Guide](evaluation.md) for metrics, dataset schemas, and the 
 
 ## Phase 4: Deploy
 
-Once evaluation thresholds are met, deploy to Google Cloud.
+Once the eval scores are good enough, deploy to Google Cloud.
 
 1. **Add a deployment target** (if you started with `--prototype`):
 

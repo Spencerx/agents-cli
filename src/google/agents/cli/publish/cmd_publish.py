@@ -505,9 +505,9 @@ def get_agent_runtime_metadata(agent_runtime_id: str) -> tuple[str | None, str |
     location = parts[3]
 
     try:
-        import vertexai
+        import agentplatform
 
-        client = vertexai.Client(project=project_id, location=location)
+        client = agentplatform.Client(project=project_id, location=location)
         agent_runtime = client.agent_engines.get(name=agent_runtime_id)
 
         display_name = getattr(agent_runtime.api_resource, "display_name", None)

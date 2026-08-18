@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-08-17
+
+- Add Agent Gateway support to `agents-cli deploy`
+- Improve A2A-on-Agent-Runtime and MCP Agent Registry guidance in skills
+- Use token-based context compaction in ADK cheatsheet
+- Add held-out case guidance during iteration to the eval skill
+- Remove built-in feedback endpoint, add guidance on building a feedback mechanism to the observability skill instead
+- Display project language in `agents-cli info`
+- Use $GH_TOKEN and $GITHUB_TOKEN environment variables as fallbacks for `--github-pat`
+  - https://github.com/google/agents-cli/issues/18
+- Populate class_methods contract on agent_runtime deploy
+  - https://github.com/google/agents-cli/issues/55
+
 ## [1.3.1] - 2026-08-04
 
 - Add agent-plugins.org plugin manifest

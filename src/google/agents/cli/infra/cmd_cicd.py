@@ -440,7 +440,11 @@ def create_or_update_secret(secret_id: str, secret_value: str, project_id: str) 
     help="Repository owner (optional, defaults to current GitHub user)",
 )
 @click.option("--host-connection-name", help="Host connection name (optional)")
-@click.option("--github-pat", help="GitHub Personal Access Token for programmatic auth")
+@click.option(
+    "--github-pat",
+    envvar=["GH_TOKEN", "GITHUB_TOKEN"],
+    help="GitHub Personal Access Token for programmatic auth",
+)
 @click.option(
     "--github-app-installation-id",
     help="GitHub App Installation ID for programmatic auth",
@@ -700,10 +704,10 @@ def setup_cicd(
                 raise
 
         else:
-            # Programmatic mode: require both --github-pat and --github-app-installation-id
+            # Programmatic mode: require both --github-pat or $GH_TOKEN/$GITHUB_TOKEN and --github-app-installation-id
             if not github_pat or not github_app_installation_id:
                 raise click.UsageError(
-                    "--github-pat and --github-app-installation-id are required for "
+                    "--github-pat (or at least one of $GH_TOKEN or $GITHUB_TOKEN environment variables) and --github-app-installation-id are required for "
                     "Cloud Build in programmatic mode. Pass -i / --interactive for "
                     "interactive OAuth flow."
                 )
