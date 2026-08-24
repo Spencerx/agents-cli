@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Google
   license: Apache-2.0
-  version: 1.4.0
+  version: 1.4.1
   requires:
     bins:
       - agents-cli
@@ -114,7 +114,7 @@ agents-cli infra single-project
 | `--agent-gateway-ingress` | Bind the agent to an Agent Gateway governing inbound traffic. Full resource name of a gateway with `governedAccessPath=CLIENT_TO_AGENT`. Empty value unbinds; omit to leave unchanged | Agent Runtime |
 | `--memory` | Memory limit (default: `4Gi`) | Agent Runtime, Cloud Run |
 | `--cpu` | CPU limit (default: `1`) | Agent Runtime, Cloud Run |
-| `--min-instances` | Minimum number of instances (default: `1`) | Agent Runtime, Cloud Run |
+| `--min-instances` | Minimum number of instances (default: `0`, i.e. scale to zero; the generated Terraform uses `1`) | Agent Runtime, Cloud Run |
 | `--max-instances` | Maximum number of instances (default: `10`) | Agent Runtime, Cloud Run |
 | `--concurrency` | Concurrent requests per container (default: `8`; see [Sizing a deployment](#sizing-a-deployment)) | Agent Runtime, Cloud Run |
 | `--port` | Container port | Cloud Run, Agent Runtime |
@@ -137,7 +137,9 @@ Run `agents-cli deploy --help` for the full flag reference.
 
 ## Sizing a deployment
 
-Defaults (same on Agent Runtime, Cloud Run, and the generated `service.tf`): `--cpu 1`, `--memory 4Gi`, `--concurrency 8`, `--min-instances 1`, `--max-instances 10`.
+Defaults (same on Agent Runtime and Cloud Run): `--cpu 1`, `--memory 4Gi`, `--concurrency 8`, `--min-instances 0`, `--max-instances 10`. The generated `service.tf` matches, except it pins `min_instances = 1` so production deployments don't experience cold starts.
+
+`agents-cli deploy` scales to zero by default so idle dev and demo agents don't hold capacity. Pass `--min-instances 1` (or deploy via Terraform) when you need a warm instance.
 
 The params are coupled — scale them together:
 

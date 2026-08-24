@@ -30,7 +30,7 @@ from google.cloud import bigquery
 {%- endif %}
 
 
-MODEL = "gemini-3.6-flash"
+MODEL = "gemini-3.7-flash"
 
 
 def get_weather(query: str) -> str:

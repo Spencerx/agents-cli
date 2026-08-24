@@ -84,44 +84,42 @@ def _check_legacy_skills():
 
         # Run raw command to get all skills without filtering
         result = run(
-            ["npx", "-y", "skills", "list", "--json"],
+            ["npx", "-y", SKILLS_NPX_PACKAGE, "list", "--json"],
             capture=True,
-            check=False,
             timeout=15,
         )
-        if result.returncode == 0:
-            installed_skills = json.loads(result.stdout)
-            legacy_skills = {
-                "adk-cheatsheet",
-                "adk-deploy-guide",
-                "adk-dev-guide",
-                "adk-eval-guide",
-                "adk-observability-guide",
-                "adk-scaffold",
-            }
+        installed_skills = json.loads(result.stdout)
+        legacy_skills = {
+            "adk-cheatsheet",
+            "adk-deploy-guide",
+            "adk-dev-guide",
+            "adk-eval-guide",
+            "adk-observability-guide",
+            "adk-scaffold",
+        }
 
-            found_legacy = []
-            for skill in installed_skills:
-                name = skill.get("name")
-                if name in legacy_skills:
-                    found_legacy.append(name)
+        found_legacy = []
+        for skill in installed_skills:
+            name = skill.get("name")
+            if name in legacy_skills:
+                found_legacy.append(name)
 
-            if found_legacy:
-                click.secho(
-                    f"\n⚠️  Warning: Found legacy ADK skills installed: {', '.join(found_legacy)}",
-                    fg="yellow",
-                )
-                click.secho(
-                    "     These may conflict with the new `agents-cli` skills.",
-                    fg="yellow",
-                )
-                click.secho(
-                    "     We suggest you uninstall them to avoid confusion, e.g.:",
-                    dim=True,
-                )
-                for name in found_legacy:
-                    click.secho(f"     npx skills remove {name}", dim=True)
-                click.echo()
+        if found_legacy:
+            click.secho(
+                f"\n⚠️  Warning: Found legacy ADK skills installed: {', '.join(found_legacy)}",
+                fg="yellow",
+            )
+            click.secho(
+                "     These may conflict with the new `agents-cli` skills.",
+                fg="yellow",
+            )
+            click.secho(
+                "     We suggest you uninstall them to avoid confusion, e.g.:",
+                dim=True,
+            )
+            for name in found_legacy:
+                click.secho(f"     npx skills remove {name}", dim=True)
+            click.echo()
     except Exception as e:
         # Don't fail the setup if the check fails
         logging.warning("Could not check for legacy skills: %s", e)

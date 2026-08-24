@@ -28,7 +28,7 @@ import (
 )
 
 // modelName is the Gemini model used by the root agent.
-const modelName = "gemini-3.6-flash"
+const modelName = "gemini-3.7-flash"
 
 // GetWeatherArgs defines the input for the get_weather tool.
 type GetWeatherArgs struct {

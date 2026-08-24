@@ -23,10 +23,10 @@ from dataclasses import dataclass
 
 import click
 from click.core import ParameterSource
-from rich.console import Console
 from rich.prompt import IntPrompt, Prompt
 
 from google.agents.cli._gcp_project import resolve_gcp_project
+from google.agents.cli._output import Console
 
 from ..utils import remote_template, template
 from ..utils.command import run_gcloud_command

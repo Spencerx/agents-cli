@@ -24,7 +24,10 @@ used by enhance and upgrade commands. It provides:
 import logging
 import pathlib
 import tomllib
+from collections.abc import Callable, Mapping
 from typing import Any
+
+import click
 
 
 def _read_python_version(root: pathlib.Path) -> str:
@@ -51,46 +54,46 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "lock_file": "uv.lock",
         "lock_command": ["uv", "lock"],
         "lock_command_name": "uv lock",
-        "strip_dependencies": True,
         "display_name": "Python",
         "agent_file": "agent.py",
         "agent_variable": "root_agent",
         "agent_in_subdirectory": False,
         "version_reader": _read_python_version,
+        "api_base_path": "",
     },
     "go": {
         "lock_file": "go.sum",
         "lock_command": ["go", "mod", "tidy"],
         "lock_command_name": "go mod tidy",
-        "strip_dependencies": False,
         "display_name": "Go",
         "agent_file": "agent.go",
         "agent_variable": "RootAgent",
         "agent_in_subdirectory": False,
         "version_reader": None,
+        "api_base_path": "/api",
     },
     "java": {
         "lock_file": None,  # Maven doesn't have a separate lock file
         "lock_command": ["mvn", "dependency:resolve"],
         "lock_command_name": "mvn dependency:resolve",
-        "strip_dependencies": False,
         "display_name": "Java",
         "agent_file": "Agent.java",
         "agent_file_pattern": "**/Agent.java",
         "agent_variable": "ROOT_AGENT",
         "agent_in_subdirectory": True,  # Java uses package subdirectories
         "version_reader": None,
+        "api_base_path": "",
     },
     "typescript": {
         "lock_file": "package-lock.json",
         "lock_command": ["npm", "install", "--package-lock-only"],
         "lock_command_name": "npm install --package-lock-only",
-        "strip_dependencies": False,
         "display_name": "TypeScript",
         "agent_file": "agent.ts",
         "agent_variable": "rootAgent",
         "agent_in_subdirectory": False,
         "version_reader": None,
+        "api_base_path": "",
     },
 }
 
@@ -105,6 +108,43 @@ def get_language_config(language: str) -> dict[str, Any]:
         The language configuration dict, or Python config as fallback
     """
     return LANGUAGE_CONFIGS.get(language, LANGUAGE_CONFIGS["python"])
+
+
+class UnsupportedLanguageError(click.ClickException):
+    """Raised when a command has no handler for the project's language."""
+
+
+def dispatch_language(
+    command_name: str,
+    handlers: Mapping[str, Callable | None],
+    language: str,
+) -> Callable:
+    """Return the handler for ``language``, or raise a clear error.
+
+    A ``None`` entry (or a missing key) means the command is intentionally not
+    wired up for that language yet, so the user gets an actionable message
+    instead of the command silently doing the wrong thing.
+
+    Args:
+        command_name: The user-facing command (e.g. ``"install"``) for messages.
+        handlers: Map of language -> handler callable (or ``None`` if the
+            command doesn't support that language yet).
+        language: The project's language.
+
+    Returns:
+        The handler callable for ``language``.
+
+    Raises:
+        UnsupportedLanguageError: If no handler is registered for ``language``.
+    """
+    handler = handlers.get(language)
+    if handler is None:
+        supported = ", ".join(sorted(k for k, v in handlers.items() if v is not None))
+        raise UnsupportedLanguageError(
+            f"`agents-cli {command_name}` isn't supported for '{language}' "
+            f"projects.\n  Supported languages: {supported}."
+        )
+    return handler
 
 
 def find_agent_file(

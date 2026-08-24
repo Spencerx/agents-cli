@@ -26,7 +26,8 @@ import click
 import yaml
 from agentplatform._genai import _evals_visualization
 from agentplatform._genai._evals_constant import SUPPORTED_PREDEFINED_METRICS
-from rich.console import Console
+
+from google.agents.cli._output import Console
 
 Execution = Literal["local", "remote"]
 

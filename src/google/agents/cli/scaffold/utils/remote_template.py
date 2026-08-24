@@ -25,7 +25,7 @@ import tomllib
 from dataclasses import dataclass
 from typing import Any
 
-from rich.console import Console
+from google.agents.cli._output import Console
 
 
 @dataclass

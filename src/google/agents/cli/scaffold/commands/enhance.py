@@ -23,9 +23,9 @@ from typing import Any
 
 import click
 from packaging import version as pkg_version
-from rich.console import Console
 from rich.prompt import IntPrompt, Prompt
 
+from google.agents.cli._output import Console
 from google.agents.cli._project import (
     ProjectConfig,
     find_project_config,

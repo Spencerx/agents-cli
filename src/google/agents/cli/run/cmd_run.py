@@ -54,7 +54,11 @@ from google.agents.cli._remote import (
     parse_agent_runtime_service_url,
     validate_agent_runtime_url,
 )
-from google.agents.cli.run._local_server import ensure_server, stop_server
+from google.agents.cli.run._local_server import (
+    api_base_path,
+    ensure_server,
+    stop_server,
+)
 from google.agents.cli.run._multimodal import (
     build_a2a_parts,
     build_adk_sse_parts,
@@ -114,9 +118,15 @@ def _resolve_dispatch_target(
     chdir_project_root()
     cfg = read_project_config()
     require_agent_directory(cfg)
-    server = ensure_server(Path.cwd(), cfg.agent_directory, trace_to_cloud=trace_to_cloud)
+    server = ensure_server(
+        Path.cwd(),
+        cfg.agent_directory,
+        language=cfg.language,
+        trace_to_cloud=trace_to_cloud,
+    )
+    base_path = api_base_path(cfg.language)
     return _DispatchTarget(
-        service_url=f"http://127.0.0.1:{server.port}",
+        service_url=f"http://127.0.0.1:{server.port}{base_path}",
         headers={},
         mode="adk",
         app_name=app_name or cfg.agent_directory,

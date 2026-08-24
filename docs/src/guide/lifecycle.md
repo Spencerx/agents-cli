@@ -38,7 +38,7 @@ The loop expands to eight phases when you walk through it slowly. Each phase has
 | # | Phase | What it does | CLI verb | Skill | Deep-dive |
 |---|---|---|---|---|---|
 | 0 | **Spec** | Write a `.agents-cli-spec.md`. The other phases derive from this. | — | `google-agents-cli-workflow` | [Development Guide](development.md) |
-| 1 | **Scaffold** | Turn the spec into a production-shaped project (~72 files). | `scaffold create` | `google-agents-cli-scaffold` | [Templates](templates.md) |
+| 1 | **Scaffold** | Turn the spec into a production-shaped project (~72 files). | `scaffold create` | `google-agents-cli-scaffold` | [Development Guide](development.md#phase-1-scaffold) |
 | 2 | **Build** | Write the agent body — model, instruction, tools, `App` wrapper. | — | `google-agents-cli-adk-code` | [Project Structure](project-structure.md) |
 | 3 | **Orchestrate** | Compose specialists when one agent grows into a team. | — | `google-agents-cli-adk-code` | [Project Structure](project-structure.md) |
 | 4 | **Evaluate** | Score the agent against a dataset before every deploy. | `eval run` (or `eval generate` + `eval grade`), plus `eval dataset synthesize`, `eval compare`, `eval analyze`, `eval metric list`, and `eval optimize` | `google-agents-cli-eval` | [Evaluation](evaluation.md) |
@@ -82,7 +82,7 @@ One command takes the spec and emits the project: agent code, tests, eval boiler
 
 <div id="lifecycle-anim-scaffold" class="lifecycle-anim" aria-label="Scaffold wizard — toggle flags, watch the command and file count update"></div>
 
-The full setup ships **~72 files** across agent code, eval boilerplate, Terraform, GitHub Actions workflows, and deploy manifests. Trim it down by skipping pieces you don't need. See [Templates](templates.md) for the full list.
+The full setup ships **~72 files** across agent code, eval boilerplate, Terraform, GitHub Actions workflows, and deploy manifests. Trim it down by skipping pieces you don't need. See [Project Structure](project-structure.md) for what each file does.
 
 ### 2 · Build
 
@@ -95,7 +95,7 @@ from google.adk.models import Gemini
 
 root_agent = Agent(
     name="root_agent",
-    model=Gemini(model="gemini-3.6-flash"),
+    model=Gemini(model="gemini-3.7-flash"),
     instruction="You are an SRE outage-recovery assistant...",
     tools=[query_logs, check_metrics, search_runbook],
 )
@@ -199,7 +199,7 @@ See [Observability](observability/index.md) for the full setup.
     Your coding agent will:
 
     1. Write a `.agents-cli-spec.md` describing the tools and constraints
-    2. Run `agents-cli scaffold create … --agent adk --deployment-target agent_runtime` (RAG is a clone-and-study recipe — adapt a RAG sample; see [Templates](templates.md#rag-retrieval-augmented-generation))
+    2. Run `agents-cli scaffold create … --agent adk --deployment-target agent_runtime` (RAG is a clone-and-study recipe — adapt a RAG sample; see [Extending the starter agent](development.md#extending-the-starter-agent))
     3. Author the agent body and tools
     4. Write dataset cases
     5. Run `agents-cli eval run` and iterate until the score crosses threshold
@@ -243,7 +243,7 @@ See [Observability](observability/index.md) for the full setup.
 
 ## Where to dig deeper
 
-- [Templates](templates.md) — scaffold templates (`adk`) and the RAG clone-and-study recipe
+- [Extending the starter agent](development.md#extending-the-starter-agent) — the recipes your coding agent studies to add capabilities
 - [Project Structure](project-structure.md) — what each generated file does
 - [Development Guide](development.md) — day-to-day workflow
 - [Evaluation Guide](evaluation.md) — dataset schema, the eval-fix loop

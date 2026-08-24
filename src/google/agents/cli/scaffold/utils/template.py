@@ -27,8 +27,9 @@ from typing import Any
 
 import yaml
 from cookiecutter.main import cookiecutter
-from rich.console import Console
 from rich.prompt import Confirm, IntPrompt
+
+from google.agents.cli._output import Console
 
 from .lock_utils import get_lock_filename
 from .remote_template import (
@@ -295,14 +296,18 @@ def validate_agent_directory_name(
 ) -> None:
     """Validate that an agent directory name is a valid identifier for the language.
 
+    Enforces an allowlist regex for all languages, then applies Python-specific
+    identifier rules.
+
     Args:
         agent_dir: The agent directory name to validate
         allow_dot: If True, allows "." as a special value indicating flat structure
-        language: The project language (python, go, java). Validation rules are
-            only enforced for Python projects since they need valid module names.
+        language: The project language (python, go, java, typescript). The allowlist
+            regex applies to every language; Python identifier rules apply only when
+            language == "python".
 
     Raises:
-        ValueError: If the agent directory name is not valid for the language
+        ValueError: If the agent directory name is not valid
 
     Note:
         The special value "." indicates flat structure - agent code is in the
@@ -315,6 +320,17 @@ def validate_agent_directory_name(
         raise ValueError(
             "Agent directory '.' is not valid in this context. "
             "Use '.' only to indicate flat structure templates."
+        )
+    # Allowlist check — enforced for ALL languages.
+    # Accepts one or more path components separated by forward slashes.
+    # Each component can only contain letters, digits, hyphens, and underscores.
+    # This implicitly blocks absolute paths (/), dot-dot (..), backslashes (\),
+    # tilde (~), Windows drives (C:), and any other path-traversal payload.
+    if not re.match(r"^[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*$", agent_dir):
+        raise ValueError(
+            f"Invalid agent directory name '{agent_dir}'. It can only contain "
+            "letters, numbers, hyphens, underscores, and forward slashes (no "
+            "absolute paths or dot-dot components)."
         )
 
     # Only validate Python identifier rules for Python projects
@@ -1084,7 +1100,6 @@ def process_template(
                     project_template,
                     agent_name,
                     overwrite=True,
-                    agent_directory=agent_directory,
                 )
                 logging.debug(f"1a. Copied shared base template from {shared_base_path}")
 
@@ -1096,7 +1111,6 @@ def process_template(
                     project_template,
                     agent_name,
                     overwrite=True,
-                    agent_directory=agent_directory,
                 )
                 logging.debug(
                     f"1b. Copied {language} base template from {language_base_path}"
@@ -1122,7 +1136,6 @@ def process_template(
                         project_template,
                         agent_name=agent_name,
                         overwrite=True,
-                        agent_directory=agent_directory,
                     )
                     logging.debug(
                         f"2a. Copied shared deployment files from {shared_deployment_path}"
@@ -1138,7 +1151,6 @@ def process_template(
                         project_template,
                         agent_name=agent_name,
                         overwrite=True,
-                        agent_directory=agent_directory,
                     )
                     logging.debug(
                         f"2b. Copied {language} deployment files from {language_deployment_path}"
@@ -1201,7 +1213,6 @@ def process_template(
                         target_agent_folder,
                         agent_name,
                         overwrite=True,
-                        agent_directory=agent_directory,
                     )
 
                 # For Java templates, also copy src/test if it exists
@@ -1217,7 +1228,6 @@ def process_template(
                             target_test_folder,
                             agent_name,
                             overwrite=True,
-                            agent_directory=agent_directory,
                         )
 
                 # Copy other folders (frontend, tests, notebooks, deployment)
@@ -1236,7 +1246,6 @@ def process_template(
                             project_folder,
                             agent_name,
                             overwrite=True,
-                            agent_directory=agent_directory,
                         )
 
             # Create cookiecutter.json in the template root
@@ -1359,7 +1368,6 @@ def process_template(
                         generated_project_dir,
                         agent_name=agent_name,
                         overwrite=True,
-                        agent_directory=agent_directory,
                     )
                 logging.debug("Remote template files copied successfully")
 
@@ -1543,19 +1551,11 @@ def process_template(
             os.chdir(original_dir)
 
 
-def should_exclude_path(
-    path: pathlib.Path, agent_name: str, agent_directory: str = "app"
-) -> bool:
-    """Determine if a path should be excluded based on the agent type."""
-    return False
-
-
 def copy_files(
     src: pathlib.Path,
     dst: pathlib.Path,
     agent_name: str | None = None,
     overwrite: bool = False,
-    agent_directory: str = "app",
 ) -> None:
     """
     Copy files with configurable behavior for exclusions and overwrites.
@@ -1565,20 +1565,26 @@ def copy_files(
         dst: Destination path
         agent_name: Name of the agent (for agent-specific exclusions)
         overwrite: Whether to overwrite existing files (True) or skip them (False)
-        agent_directory: Name of the agent directory (for agent-specific exclusions)
     """
 
     def should_skip(path: pathlib.Path) -> bool:
-        """Determine if a file/directory should be skipped during copying."""
+        """Determine if a file/directory should be skipped during copying.
+        Symlinks are always skipped for remote templates to prevent CWE-59
+        (symlink-following) attacks where an attacker ships a symlink pointing
+        to sensitive host files (e.g. ~/.ssh/id_rsa) and the victim's project
+        ends up with a copy of that file's contents.
+        """
+        # Never follow symlinks from untrusted remote template sources
+        if path.is_symlink():
+            logging.warning(
+                f"Skipping symlink in template source (symlinks are not allowed): {path}"
+            )
+            return True
         if path.suffix in [".pyc"]:
             return True
         if "__pycache__" in str(path) or path.name == "__pycache__":
             return True
         if ".git" in path.parts:
-            return True
-        if agent_name is not None and should_exclude_path(
-            path, agent_name, agent_directory
-        ):
             return True
         if path.is_dir() and path.name == ".template":
             return True
@@ -1609,7 +1615,7 @@ def copy_files(
 
             d = dst / item.name
             if item.is_dir():
-                copy_files(item, d, agent_name, overwrite, agent_directory)
+                copy_files(item, d, agent_name, overwrite)
             else:
                 if overwrite or not d.exists():
                     try:
@@ -1683,10 +1689,41 @@ def copy_deployment_files(
             project_template,
             agent_name=agent_name,
             overwrite=True,
-            agent_directory=agent_directory,
         )
     else:
         logging.warning(f"Deployment target directory not found: {deployment_path}")
+
+
+def _assert_path_within(
+    candidate: pathlib.Path,
+    root: pathlib.Path,
+) -> None:
+    """Raise ValueError if *candidate* is not contained within *root*.
+
+    Both paths are resolved to their real absolute forms before the check so
+    that symbolic links and ``..`` components cannot be used to bypass the
+    boundary.
+
+    Args:
+        candidate: The path that must be inside *root*.
+        root: The allowed root directory.
+
+    Raises:
+        ValueError: If *candidate* resolves to a location outside *root*.
+    """
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError as e:
+        raise ValueError(
+            f"Security check failed: '{candidate}' would be written "
+            f"outside the project directory '{root}'. "
+            "Aborting to prevent path-traversal exploitation."
+        ) from e
+
+
+def _skip_symlinks(directory: str, names: list[str]) -> set[str]:
+    """Ignore callback for shutil.copytree to skip symlinks at every nesting level."""
+    return {n for n in names if pathlib.Path(directory, n).is_symlink()}
 
 
 def copy_flat_structure_agent_files(
@@ -1699,12 +1736,17 @@ def copy_flat_structure_agent_files(
     For flat structure templates, Python files (*.py) in the root are copied
     to the agent directory, while other files are copied to the project root.
 
+    Security: symlinks in *src* are never followed; the resolved destination
+    path is verified to be contained within *dst* before any write occurs.
+
     Args:
         src: Source path (template root with flat structure)
         dst: Destination path (project root)
         agent_directory: Target agent directory name
     """
     agent_dst = dst / agent_directory
+    # Path-containment guard: reject traversal that slipped past validation
+    _assert_path_within(agent_dst, dst)
     agent_dst.mkdir(parents=True, exist_ok=True)
 
     # Files that should go to agent directory
@@ -1717,11 +1759,18 @@ def copy_flat_structure_agent_files(
             continue
         if item.name == "__pycache__":
             continue
+        if item.is_symlink():
+            logging.warning(
+                f"Skipping symlink in flat-structure template source "
+                f"(symlinks are not allowed): {item}"
+            )
+            continue
 
         if item.is_file():
             if item.suffix in agent_file_extensions:
                 # Python files go to agent directory
                 dest_file = agent_dst / item.name
+                _assert_path_within(dest_file, dst)
                 logging.debug(
                     f"Flat structure: copying {item.name} -> {agent_directory}/{item.name}"
                 )
@@ -1729,12 +1778,14 @@ def copy_flat_structure_agent_files(
             else:
                 # Other files go to project root
                 dest_file = dst / item.name
+                _assert_path_within(dest_file, dst)
                 logging.debug(f"Flat structure: copying {item.name} -> {item.name}")
                 shutil.copy2(item, dest_file)
         elif item.is_dir():
             # Directories are copied to project root (preserving structure)
             dest_dir = dst / item.name
+            _assert_path_within(dest_dir, dst)
             logging.debug(f"Flat structure: copying directory {item.name}")
             if dest_dir.exists():
                 shutil.rmtree(dest_dir)
-            shutil.copytree(item, dest_dir)
+            shutil.copytree(item, dest_dir, ignore=_skip_symlinks)

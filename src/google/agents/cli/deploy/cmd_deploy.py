@@ -1196,8 +1196,9 @@ def _list_agent_runtime_deployments(project: str | None, location: str) -> None:
         click.echo(f"No Agent Runtime deployments found in {project} ({location}).")
         return
 
-    from rich.console import Console
     from rich.table import Table
+
+    from google.agents.cli._output import Console
 
     table = Table(title=f"Agent Runtime Deployments — {project} ({location})")
     table.add_column("Display Name", style="bold")
@@ -1250,8 +1251,9 @@ def _list_cloud_run_deployments(project: str | None, region: str | None) -> None
         click.echo(f"No Cloud Run services found{location_label}{project_label}.")
         return
 
-    from rich.console import Console
     from rich.table import Table
+
+    from google.agents.cli._output import Console
 
     title_parts = ["Cloud Run Services"]
     if project:
@@ -1312,8 +1314,9 @@ def _list_gke_deployments() -> None:
         click.echo("No GKE deployments found in the current cluster.")
         return
 
-    from rich.console import Console
     from rich.table import Table
+
+    from google.agents.cli._output import Console
 
     table = Table(title="GKE Deployments")
     table.add_column("Name", style="bold")

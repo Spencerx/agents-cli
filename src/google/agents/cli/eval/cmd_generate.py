@@ -28,9 +28,9 @@ from agentplatform import types
 from agentplatform._genai.types import common
 from agentplatform._genai.types import evals as evals_types
 from google.genai import types as genai_types
-from rich.console import Console
 
 from google.agents.cli._adk_client import create_session, fetch_app_info, run_sse
+from google.agents.cli._output import Console
 from google.agents.cli._project import (
     ProjectConfig,
     find_project_root,
@@ -174,7 +174,7 @@ def merge_events_into_case(
     return merged
 
 
-def _parse_sse_event(event: dict) -> evals_types.AgentEvent:
+def _parse_sse_event(event: dict) -> evals_types.AgentEvent | None:
     """Parse a ``/run_sse`` event into an ``AgentEvent``, or raise ``ValueError``.
 
     Raises an exception when the event is unusable:
@@ -182,10 +182,13 @@ def _parse_sse_event(event: dict) -> evals_types.AgentEvent:
     * it signals a failure -- event carrying ``errorCode`` / ``errorMessage``
       or a bare top-level ``{"error": ...}`` (the final frame ADK emits before
       closing the stream on a failed run); or
-    * it is missing ``author`` and/or ``content``.
+    * it is missing ``author``.
 
     ``AgentEvent`` construction may also raise ``ValueError`` for
     otherwise-malformed content.
+
+    Returns None for events that contain neither content nor state delta (e.g.
+    events that record artifact deltas fall into that category).
     """
     message = event.get("errorMessage") or event.get("error")
     code = event.get("errorCode")
@@ -195,12 +198,19 @@ def _parse_sse_event(event: dict) -> evals_types.AgentEvent:
             f"Agent returned an error: {detail}" + (f" ({code})" if code else "")
         )
 
-    missing = [field for field in ("author", "content") if not event.get(field)]
-    if missing:
-        raise ValueError(f"Malformed agent event: missing {' and '.join(missing)}.")
+    if not event.get("author"):
+        raise ValueError("Malformed agent event: missing author.")
+
+    content = event.get("content")
+    state_delta = event.get("actions", {}).get("stateDelta")
+    if not content and not state_delta:
+        return None
 
     return evals_types.AgentEvent(
-        author=event.get("author"), content=event.get("content")
+        author=event.get("author"),
+        content=content or None,
+        event_time=event.get("timestamp") or None,
+        state_delta=state_delta or None,
     )
 
 
@@ -257,7 +267,9 @@ def run_case(
         return case, ("Inference returned no agent events.")
 
     try:
-        new_events = [_parse_sse_event(e) for e in raw_events]
+        new_events = [
+            event for event in map(_parse_sse_event, raw_events) if event is not None
+        ]
     except Exception as exc:
         return case, str(exc)
     strip_thought_signatures(new_events)
@@ -669,6 +681,7 @@ def _run_against_local_server(
     server_info = ensure_server(
         project_root,
         cfg.agent_directory,
+        language=cfg.language,
         use_in_memory_session=False,
     )
     local_url = f"http://127.0.0.1:{server_info.port}"

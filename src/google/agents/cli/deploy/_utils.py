@@ -25,12 +25,16 @@ if TYPE_CHECKING:
     from google.agents.cli._project import ProjectConfig
 
 # Shared machine-shape defaults for the imperative deploy paths: the deploy
-# command (Cloud Run) and deploy_agent_runtime() both pull from here. The Cloud
-# Run Terraform (service.tf) duplicates these values and must be kept in sync by
-# hand — Terraform can't import them.
+# command (Cloud Run) and deploy_agent_runtime() both pull from here. The
+# generated Terraform (service.tf) duplicates these values and must be kept in
+# sync by hand, since Terraform can't import them.
 DEFAULT_CPU = "1"
 DEFAULT_MEMORY = "4Gi"
-DEFAULT_MIN_INSTANCES = 1
+# Scale to zero by default: `agents-cli deploy` is the iteration path, and idle
+# dev/demo agents holding a warm instance burn regional capacity for nothing.
+# Production deployments go through Terraform, whose service.tf pins
+# min_instances = 1 to avoid cold starts; users can also pass --min-instances.
+DEFAULT_MIN_INSTANCES = 0
 DEFAULT_MAX_INSTANCES = 10
 # Max in-flight requests per container. Conservative on purpose: the worker is
 # I/O-bound (CPU isn't the limit), but peak memory grows with concurrency and is

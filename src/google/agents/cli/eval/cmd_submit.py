@@ -19,11 +19,11 @@ import click
 from agentplatform._genai.types.common import (
     EvaluationDataset,
 )
-from rich.console import Console
 from rich.table import Table
 
 import google.agents.cli._gcp_project as _gcp_project
 import google.agents.cli._project as _project
+from google.agents.cli._output import Console
 from google.agents.cli.eval import _paths
 from google.agents.cli.eval.eval_utils import (
     prepare_eval_metrics,

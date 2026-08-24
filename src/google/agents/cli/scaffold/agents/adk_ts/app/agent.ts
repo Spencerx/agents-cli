@@ -1,7 +1,7 @@
 import { FunctionTool, LlmAgent } from '@google/adk';
 import { z } from 'zod';
 
-const MODEL = 'gemini-3.6-flash';
+const MODEL = 'gemini-3.7-flash';
 
 /* Mock tool implementation */
 const getWeather = new FunctionTool({

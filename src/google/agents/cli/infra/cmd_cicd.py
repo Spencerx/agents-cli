@@ -21,8 +21,8 @@ import time
 from pathlib import Path
 
 import click
-from rich.console import Console
 
+from google.agents.cli._output import Console
 from google.agents.cli._project import chdir_project_root, read_project_config
 from google.agents.cli._tools import (
     ToolNotFoundError,

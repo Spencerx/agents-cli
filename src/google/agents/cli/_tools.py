@@ -47,7 +47,9 @@ DEFAULT_INSTALL_HINTS = {
     "gh": "Install the GitHub CLI (https://cli.github.com/) and ensure it is in your PATH.",
     "git": "Install Git (https://git-scm.com/downloads) and ensure it is in your PATH.",
     "uv": "Install uv (https://docs.astral.sh/uv/getting-started/installation/) and ensure it is in your PATH.",
-    "uvx": "Install uv (https://docs.astral.sh/uv/getting-started/installation/) and ensure it is in your PATH.",
+    # uvx is shipped by uv, so the install instructions are the same.
+    "uvx": "uvx is part of uv. Install uv (https://docs.astral.sh/uv/getting-started/installation/) and ensure it is in your PATH.",
+    "go": "Install Go (https://go.dev/doc/install) and ensure it is in your PATH.",
 }
 
 
@@ -81,7 +83,7 @@ def _get_cleaned_path() -> str:
     return os.pathsep.join(cleaned_parts)
 
 
-def _is_windows() -> bool:
+def is_windows() -> bool:
     """Returns True if the current operating system is Windows."""
     return os.name == "nt"
 
@@ -93,7 +95,7 @@ def _get_gcloud_fallback() -> str | None:
     typically happens if the user opted not to add gcloud to the PATH during
     installation.
     """
-    if not _is_windows():
+    if not is_windows():
         return None
 
     local_app_data = Path(
@@ -131,7 +133,7 @@ def require_tool(name: str, install_hint: str = "") -> str:
 
     path = shutil.which(name)
 
-    if path is None and _is_windows():
+    if path is None and is_windows():
         path = shutil.which(name, path=_get_cleaned_path())
 
     if path is None:

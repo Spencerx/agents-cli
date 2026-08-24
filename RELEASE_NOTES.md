@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-08-24
+
+- Scaffolds now default to `gemini-3.7-flash`.
+- `agents-cli eval generate` no longer fails to generate traces for some agents.
+- `agents-cli deploy` now defaults to `--min-instances 0` (was `1`) on Agent Runtime and Cloud Run, so that idle dev and demo agents don't take up resources.
+- `agents-cli scaffold upgrade` now creates a project backup before applying changes, just like `agents-cli scaffold enhance`.
+- Fixed `npx skills find` to use the pinned `skills` version.
+  - https://github.com/google/agents-cli/issues/72
+- Fixed an arbitrary file write vulnerability in `agents-cli scaffold create`.
+  - https://github.com/google/agents-cli/issues/50
+
 ## [1.4.0] - 2026-08-17
 
 - Add Agent Gateway support to `agents-cli deploy`

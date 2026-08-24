@@ -30,6 +30,10 @@ import click
 import psutil
 
 from google.agents.cli._runner import popen_resolved_detached, redact_cmd
+from google.agents.cli.scaffold.utils.language import (
+    dispatch_language,
+    get_language_config,
+)
 
 _PID_DIR = ".google-agents-cli"
 _PID_FILENAME = "run_server.json"
@@ -61,6 +65,7 @@ def ensure_server(
     project_root: Path,
     agent_dir: str,
     *,
+    language: str,
     idle_timeout: int = _DEFAULT_IDLE_TIMEOUT,
     trace_to_cloud: bool = False,
     use_in_memory_session: bool = True,
@@ -74,6 +79,8 @@ def ensure_server(
     Args:
         project_root: The project root directory (cwd when running).
         agent_dir: The agent directory name (e.g. ``"investment_agent"``).
+        language: The project language (``"python"`` or ``"go"``). Selects the
+            server launcher. Only takes effect when a new server is started.
         idle_timeout: Seconds of inactivity before the server is considered
             stale and replaced.  Defaults to 30 minutes.
         trace_to_cloud: When ``True``, export traces to Cloud Trace.
@@ -115,6 +122,7 @@ def ensure_server(
         project_root=project_root,
         agent_dir=agent_dir,
         port=port,
+        language=language,
         trace_to_cloud=trace_to_cloud,
         use_in_memory_session=use_in_memory_session,
     )
@@ -185,11 +193,34 @@ def _build_serve_command(
     project_root: Path,
     agent_dir: str,
     port: int,
+    language: str,
     trace_to_cloud: bool = False,
 ) -> list[str]:
-    """Return the command list for booting the local server.
+    """Return the command list for booting the local server for ``language``.
 
-    Prefers running this projects `fast_api_app.py` under uvicorn when the file exists, otherwise falls back to `adk api_server`.
+    Dispatches to the per-language builder in ``LANGUAGE_HANDLERS`` and
+    raises a clear error for a language with no launcher.
+    """
+    builder = dispatch_language("run", LANGUAGE_HANDLERS, language)
+    return builder(
+        project_root=project_root,
+        agent_dir=agent_dir,
+        port=port,
+        trace_to_cloud=trace_to_cloud,
+    )
+
+
+def _python_serve_command(
+    *,
+    project_root: Path,
+    agent_dir: str,
+    port: int,
+    trace_to_cloud: bool = False,
+) -> list[str]:
+    """Booting command for a Python agent.
+
+    Prefers running this project's `fast_api_app.py` under uvicorn when the
+    file exists, otherwise falls back to `adk api_server`.
     """
     if _has_fast_api_app(project_root, agent_dir):
         if trace_to_cloud:
@@ -229,11 +260,47 @@ def _build_serve_command(
     return cmd
 
 
+def _go_serve_command(
+    *,
+    port: int,
+    trace_to_cloud: bool = False,
+    **_,
+) -> list[str]:
+    """Booting command for a Go agent: `go run . web ... api a2a`.
+
+    Mirrors the template Makefile's local-backend target. ADK Go serves the
+    ADK API under /api and A2A under /a2a on this port.
+    """
+    cmd = ["go", "run", ".", "web", "--port", str(port)]
+    if trace_to_cloud:
+        cmd.append("--otel_to_cloud")
+    return [*cmd, "api", "a2a"]
+
+
+# `None` = not supported yet; dispatch_language raises a clear error.
+LANGUAGE_HANDLERS = {
+    "python": _python_serve_command,
+    "go": _go_serve_command,
+    "java": None,
+    "typescript": None,
+}
+
+
+def api_base_path(language: str) -> str:
+    """Return the URL sub-path the local ADK API is served under for ``language``.
+
+    The value is language configuration (ADK Go serves the API under ``/api``,
+    Python serves it at the root), so it lives in ``LANGUAGE_CONFIGS``.
+    """
+    return get_language_config(language).get("api_base_path", "")
+
+
 def _start_server(
     *,
     project_root: Path,
     agent_dir: str,
     port: int,
+    language: str,
     trace_to_cloud: bool = False,
     use_in_memory_session: bool = True,
 ) -> int:
@@ -254,6 +321,7 @@ def _start_server(
         project_root=project_root,
         agent_dir=agent_dir,
         port=port,
+        language=language,
         trace_to_cloud=trace_to_cloud,
     )
 

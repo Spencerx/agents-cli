@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import click
-from rich.console import Console
 
+from google.agents.cli._output import Console
 from google.agents.cli._project import find_project_root
 from google.agents.cli.eval import _paths
 from google.agents.cli.eval.cmd_generate import _DEFAULT_CONCURRENCY, cmd_generate

@@ -42,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
 @ComponentScan(basePackages = "{{cookiecutter.java_package}}")
 public class Agent {
 
-  private static final String MODEL = "gemini-3.6-flash";
+  private static final String MODEL = "gemini-3.7-flash";
 
   public static final LlmAgent ROOT_AGENT =
       LlmAgent.builder()

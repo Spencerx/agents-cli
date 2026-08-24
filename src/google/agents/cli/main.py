@@ -44,7 +44,7 @@ def _print_is_project_moved_tip() -> None:
         " re-run your original command"
     )
     if is_project_moved():
-        from rich.console import Console
+        from google.agents.cli._output import Console
 
         Console().print(message, style="cyan")
 
@@ -62,10 +62,11 @@ class _MainGroup(LazyGroup):
             _print_is_project_moved_tip()
             raise
         except KeyboardInterrupt:
-            from rich.console import Console
+            from google.agents.cli._output import Console
 
-            Console().print(f"\nagents-cli v{__version__}", style="dim")
-            Console().print("Operation cancelled by user", style="yellow")
+            console = Console()
+            console.print(f"\nagents-cli v{__version__}", style="dim")
+            console.print("Operation cancelled by user", style="yellow")
             ctx.exit(130)
         except Exception:
             click.echo(f"agents-cli v{__version__}", err=True)
@@ -153,6 +154,12 @@ main.add_lazy_command(
     "install",
     "google.agents.cli.dev.cmd_install:cmd_install",
     "Install project dependencies.",
+)
+main.add_lazy_command(
+    "build",
+    "google.agents.cli.dev.cmd_build:cmd_build",
+    "Build the agent binary.",
+    experiment="build_command",
 )
 
 # Data commands

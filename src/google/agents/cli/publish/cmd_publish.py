@@ -27,7 +27,6 @@ from urllib.parse import urlparse
 import click
 import requests
 from packaging import version
-from rich.console import Console
 from rich.table import Table
 
 from google.agents.cli._agent_runtime_a2a import build_agent_runtime_a2a_card_url
@@ -35,7 +34,7 @@ from google.agents.cli._gcp_project import (
     get_gcp_project_number,
     resolve_gcp_project,
 )
-from google.agents.cli._output import emit
+from google.agents.cli._output import Console, emit
 from google.agents.cli._project import read_project_config
 from google.agents.cli._runner import run_resolved
 from google.agents.cli._tools import ToolNotFoundError

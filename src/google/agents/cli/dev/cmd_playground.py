@@ -15,19 +15,21 @@
 """agents-cli playground command — start local agent playground."""
 
 import logging
-import os
 import shlex
 
 import click
-from rich.console import Console
+from click.core import ParameterSource
 from rich.panel import Panel
 
+from google.agents.cli._output import Console
 from google.agents.cli._project import (
     chdir_project_root,
     read_project_config,
     require_agent_directory,
 )
 from google.agents.cli._runner import run
+from google.agents.cli._tools import is_windows
+from google.agents.cli.scaffold.utils.language import dispatch_language
 
 _console = Console()
 
@@ -66,10 +68,35 @@ def cmd_playground(port, host, reload_agents, otel_to_cloud, trace_to_cloud):
     cfg = read_project_config()
     require_agent_directory(cfg)
 
-    # adk web doesn't auto-select the agent — pre-fill it via ?app= so the
-    # URL we print drops the user straight into their agent.
     # Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues on Windows.
     browser_host = "127.0.0.1" if host == "0.0.0.0" else host
+
+    build = dispatch_language("playground", LANGUAGE_HANDLERS, cfg.language)
+    url, args = build(
+        cfg=cfg,
+        browser_host=browser_host,
+        host=host,
+        port=port,
+        reload_agents=reload_agents,
+        otel_to_cloud=otel_to_cloud,
+    )
+
+    _print_banner(url, args)
+    run(args, print_cmd=False, check_err_msg="Failed to start playground")
+
+
+def _build_python_playground(
+    *,
+    cfg,
+    browser_host: str,
+    host: str,
+    port: int,
+    reload_agents: bool,
+    otel_to_cloud: bool,
+) -> tuple[str, list[str]]:
+    """Build the (banner URL, command) for a Python (adk web) playground."""
+    # adk web doesn't auto-select the agent — pre-fill it via ?app= so the
+    # URL we print drops the user straight into their agent.
     url = f"http://{browser_host}:{port}/dev-ui/?app={cfg.agent_directory}"
 
     args = [
@@ -86,16 +113,58 @@ def cmd_playground(port, host, reload_agents, otel_to_cloud, trace_to_cloud):
 
     # A '*' value is improperly shell-expanded on Windows due to an ADK bug,
     # see b/525208532. Work around it by only passing the flag for non-Windows.
-    if os.name != "nt":
+    if not is_windows():
         args.extend(["--allow_origins", "*"])
 
     if reload_agents:
         args.append("--reload_agents")
     if otel_to_cloud:
         args.append("--otel_to_cloud")
+    return url, args
 
-    _print_banner(url, args)
-    run(args, print_cmd=False, check_err_msg="Failed to start playground")
+
+def _user_set(option: str) -> bool:
+    """Whether ``option`` came from the command line rather than its default."""
+    ctx = click.get_current_context(silent=True)
+    return (
+        ctx is not None
+        and ctx.get_parameter_source(option) == ParameterSource.COMMANDLINE
+    )
+
+
+def _build_go_playground(
+    *, port: int, reload_agents: bool, otel_to_cloud: bool, **_
+) -> tuple[str, list[str]]:
+    """Build the (banner URL, command) for a Go (adk-go web) playground.
+
+    ADK Go serves the web UI under /ui/ and mounts its API under /api, so the
+    launcher is told where to reach the API server.
+    """
+    # `adk-go web` always binds ":port" (all interfaces) and has no reload, so
+    # warn only when the user actually asked for what we're about to drop.
+    if _user_set("host"):
+        logging.warning(
+            "--host is not supported by `adk-go web`, which always binds all "
+            "interfaces; ignoring it."
+        )
+    if reload_agents and _user_set("reload_agents"):
+        logging.warning("--reload_agents is not supported by `adk-go web`; ignoring it.")
+
+    url = f"http://127.0.0.1:{port}/ui/"
+    args = ["go", "run", ".", "web", "--port", str(port)]
+    if otel_to_cloud:
+        args.append("--otel_to_cloud")
+    args += ["api", "webui", "--api_server_address", f"http://localhost:{port}/api"]
+    return url, args
+
+
+# `None` = not supported yet; dispatch_language raises a clear error.
+LANGUAGE_HANDLERS = {
+    "python": _build_python_playground,
+    "go": _build_go_playground,
+    "java": None,
+    "typescript": None,
+}
 
 
 def _print_banner(url: str, cmd_args: list[str]) -> None:

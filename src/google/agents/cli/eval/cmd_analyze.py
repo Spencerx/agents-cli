@@ -25,10 +25,10 @@ from pathlib import Path
 import agentplatform
 import click
 from agentplatform._genai import _evals_visualization
-from rich.console import Console
 from rich.table import Table
 
 from google.agents.cli._gcp_project import resolve_gcp_project
+from google.agents.cli._output import Console
 from google.agents.cli._project import (
     chdir_project_root,
     read_project_config,
@@ -220,4 +220,7 @@ def cmd_analyze(
         console.print(table)
         console.print()
 
-    console.print(f"Detailed analysis results saved to [green]{output_path}[/green]")
+    console.print(
+        f"Detailed analysis results saved to [green]{output_path}[/green]",
+        soft_wrap=True,
+    )
