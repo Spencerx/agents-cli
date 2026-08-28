@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [1.4.2] - 2026-08-28
+
+- Adds upper-bound for google-cloud-aiplatform dependency.
+
 ## [1.4.1] - 2026-08-24
 
 - Scaffolds now default to `gemini-3.7-flash`.
