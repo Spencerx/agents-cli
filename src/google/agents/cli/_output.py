@@ -19,7 +19,7 @@ import sys
 from enum import IntEnum
 from typing import Any
 
-from rich.console import Console as _RichConsole
+from rich.console import Console as _RichConsole  # noqa: TID251
 
 
 class ExitCode(IntEnum):

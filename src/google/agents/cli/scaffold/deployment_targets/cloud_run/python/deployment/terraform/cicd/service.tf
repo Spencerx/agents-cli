@@ -110,7 +110,7 @@ resource "google_cloud_run_v2_service" "app" {
   deletion_protection = false
   ingress             = "INGRESS_TRAFFIC_ALL"
   labels = {
-    "created-by"                  = "adk"
+    "created-by"                  = "agents-cli"
 {%- if cookiecutter.agent_garden %}
     "deployed-with"               = "agent-garden"
 {%- if cookiecutter.agent_sample_id %}

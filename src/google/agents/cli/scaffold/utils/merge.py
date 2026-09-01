@@ -81,7 +81,10 @@ def _run_vendored_create(
 
     cli_args = [project_name]
     cli_args.extend(["--output-dir", str(output_dir)])
-    cli_args.extend(["--auto-approve", "--skip-deps", "--skip-checks"])
+    # This runs in-process, so its output lands in the user's terminal.
+    # --quiet keeps it silent. The pinned path deliberately does not pass it:
+    # older published releases would reject it, and uvx output is captured.
+    cli_args.extend(["--auto-approve", "--skip-deps", "--skip-checks", "--quiet"])
     cli_args.extend(args)
 
     logging.debug(f"Running vendored create command with args: {cli_args}")
@@ -608,7 +611,7 @@ def run_three_way_merge(
         )
         has_dep_changes = any(r.status != "unchanged" for r in dep_resolutions)
         if total_changes == 0 and not has_dep_changes:
-            console.print("[bold green]\u2705[/bold green] No changes needed!")
+            console.print("[bold green]✅[/bold green] No changes needed!")
             return True
 
         # ── Confirm ──────────────────────────────────────────────────
@@ -678,7 +681,7 @@ def run_three_way_merge(
                 )
             console.print()
             console.print(
-                f"[bold green]\u2705 {operation_label.capitalize()} complete![/bold green]"
+                f"[bold green]✅ {operation_label.capitalize()} complete![/bold green]"
             )
 
         return True

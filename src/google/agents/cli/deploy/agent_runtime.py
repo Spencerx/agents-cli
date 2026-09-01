@@ -27,12 +27,14 @@ import os
 import re
 import urllib.parse
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import agentplatform
 import click
 import pathspec
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentplatform._genai import _agent_engines_utils
 from agentplatform._genai.types import (
     AgentEngine,
@@ -47,12 +49,13 @@ from google.cloud import resourcemanager_v3
 from google.genai.errors import APIError
 from google.iam.v1 import iam_policy_pb2, policy_pb2
 
-from google.agents.cli._agent_runtime_a2a import build_agent_runtime_a2a_card_url
+from google.agents.cli._agent_platform import AgentPlatformClient
 from google.agents.cli._project import (
     ProjectConfig,
     find_project_root,
     scaffold_older_than,
 )
+from google.agents.cli._remote import build_agent_runtime_passthrough_url
 from google.agents.cli.deploy._operation import (
     METADATA_FILE,
     clear_operation,
@@ -68,8 +71,12 @@ from google.agents.cli.deploy._utils import (
     parse_key_value_pairs,
     read_project_dotenv,
     resolve_service_name,
+    validate_deployment_region,
 )
-from google.agents.cli.scaffold.utils.language import get_project_version
+from google.agents.cli.scaffold.utils.language import (
+    get_language_config,
+    get_project_version,
+)
 
 # Suppress google-cloud-storage version compatibility warning
 warnings.filterwarnings(
@@ -79,7 +86,11 @@ warnings.filterwarnings(
 
 def parse_secrets(secrets_string: str | None) -> dict[str, dict[str, str]]:
     """Parse secrets from ENV_VAR=SECRET_ID or ENV_VAR=SECRET_ID:VERSION format."""
-    raw = parse_key_value_pairs(secrets_string)
+    try:
+        raw = parse_key_value_pairs(secrets_string)
+    except ValueError as e:
+        raise click.ClickException(f"Error parsing secrets: {e}") from e
+
     result: dict[str, dict[str, str]] = {}
     for key, spec in raw.items():
         if ":" not in spec:
@@ -127,13 +138,18 @@ def _build_runtime_env_vars(
     """
     # Project .env is the base layer; explicit --update-env-vars wins over it.
     env_vars: dict[str, Any] = read_project_dotenv(find_project_root() or Path.cwd())
-    env_vars.update(parse_key_value_pairs(set_env_vars))
+    try:
+        env_vars.update(parse_key_value_pairs(set_env_vars))
+    except ValueError as e:
+        raise click.ClickException(
+            f"Error parsing --set-env-vars flag value '{set_env_vars}': {e}"
+        ) from e
     env_vars.update(secrets)  # type: ignore[arg-type]
     # Agent Runtime injects these itself; including them in deployment_spec.env is
     # rejected with FAILED_PRECONDITION ("... is reserved").
     for reserved in _AGENT_RUNTIME_RESERVED_ENV & env_vars.keys():
         logging.warning(
-            "Ignoring reserved Agent Runtime env var %s \u2014 it is set by the platform.",
+            "Ignoring reserved Agent Runtime env var %s — it is set by the platform.",
             reserved,
         )
         del env_vars[reserved]
@@ -174,6 +190,13 @@ def _existing_plain_env_vars(agent: Any) -> dict[str, str]:
     return result
 
 
+def _existing_labels(agent: AgentEngine) -> dict[str, str]:
+    """Already existing Agent Runtime labels."""
+    if not agent.api_resource:
+        return {}
+    return agent.api_resource.labels or {}
+
+
 def _get_resource_name_from_operation(operation_name: str) -> str:
     """Extract ReasoningEngine resource name from long-running operation name.
 
@@ -204,6 +227,7 @@ def write_deployment_metadata(
         "remote_agent_runtime_id": remote_agent.api_resource.name,
         "deployment_target": "agent_runtime",
         "is_a2a": cfg.is_a2a,
+        "language": cfg.language,
         "agent_directory": cfg.agent_directory,
         "deployment_timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
     }
@@ -227,9 +251,22 @@ def print_deployment_success(
 
     if cfg.is_a2a:
         print("\n✅ Deployment successful!")
-        agent_card_url = build_agent_runtime_a2a_card_url(
-            location, remote_agent.api_resource.name, cfg.agent_directory
+        passthrough_url = build_agent_runtime_passthrough_url(
+            location, remote_agent.api_resource.name
         )
+        a2a_path_factory: Callable[[str], str] | None = get_language_config(
+            cfg.language
+        ).get("a2a_base_path_factory")
+        if a2a_path_factory is None:
+            logging.warning(
+                "No A2A base path is defined for language '%s'; defaulting to the "
+                "root path. The agent card URL may be wrong.",
+                cfg.language,
+            )
+            a2a_path = ""
+        else:
+            a2a_path = a2a_path_factory(cfg.agent_directory)
+        agent_card_url = f"{passthrough_url}{a2a_path}{AGENT_CARD_WELL_KNOWN_PATH}"
         print(f"🪪 Agent Card URL: {agent_card_url}")
     else:
         print("\n✅ Deployment successful!")
@@ -488,7 +525,7 @@ def deploy_agent_runtime(
     source_packages: list[str] | None = None,
     set_env_vars: str | None = None,
     set_secrets: str | None = None,
-    labels: str | None = None,
+    labels: dict[str, str] | None = None,
     service_account: str | None = None,
     min_instances: int | None = None,
     max_instances: int | None = None,
@@ -497,6 +534,7 @@ def deploy_agent_runtime(
     container_concurrency: int | None = None,
     agent_identity: bool = False,
     no_wait: bool = False,
+    update_only: bool = False,
     psc_interface_config: dict | None = None,
     agent_gateway_egress: str | None = None,
     agent_gateway_ingress: str | None = None,
@@ -514,7 +552,7 @@ def deploy_agent_runtime(
         source_packages: Source packages to deploy.
         set_env_vars: Comma-separated KEY=VALUE env vars.
         set_secrets: Comma-separated ENV_VAR=SECRET_ID pairs.
-        labels: Comma-separated KEY=VALUE labels.
+        labels: Dict of {key: value} label pairs.
         service_account: Service account email.
         min_instances: Minimum number of instances.
         max_instances: Maximum number of instances.
@@ -523,6 +561,8 @@ def deploy_agent_runtime(
         container_concurrency: Container concurrency.
         agent_identity: Enable agent identity.
         no_wait: If True, start the deployment and return immediately.
+        update_only: If True, fail instead of creating an engine that does not
+            already exist.
         psc_interface_config: PSC interface configuration dict for private
             VPC connectivity. Contains ``network_attachment`` and optionally
             ``dns_peering_configs``.
@@ -537,11 +577,7 @@ def deploy_agent_runtime(
     Returns:
         The deployed AgentEngine instance, or None when no_wait is True.
     """
-    if location == "global":
-        raise click.ClickException(
-            "Region 'global' is not supported for Agent Runtime deployments.\n"
-            "  Please specify a regional location (e.g., 'us-central1', 'us-east1') via --region or in your project config."
-        )
+    validate_deployment_region(location, "Agent Runtime")
 
     display_name = display_name or resolve_service_name(cfg, None)
 
@@ -562,9 +598,8 @@ def deploy_agent_runtime(
     if agent_gateway_egress:
         _require_gateway_ready_project(cfg)
 
-    # Parse CLI environment variables, secrets, and labels
+    # Parse CLI environment variables and secrets.
     secrets = parse_secrets(set_secrets)
-    labels_dict = parse_key_value_pairs(labels)
     agent_gateway_config = _build_agent_gateway_config(
         egress_gateway_name=agent_gateway_egress,
         ingress_gateway_name=agent_gateway_ingress,
@@ -577,15 +612,16 @@ def deploy_agent_runtime(
     )
 
     # Initialize agentplatform client
-    http_options = {"api_version": "v1beta1"} if agent_identity else None
-    client = agentplatform.Client(
+    client = AgentPlatformClient(
         project=project,
         location=location,
-        http_options=http_options,
+        api_version="v1beta1" if agent_identity else None,
     )
     agentplatform.init(project=project, location=location)
 
     # Check for existing agent
+    # TODO: b/555644474 - select by resource ID; a display name is not unique,
+    # so more than one match is possible and this silently takes the first.
     existing_agents = list(client.agent_engines.list())
     matching_agents = [
         agent
@@ -597,6 +633,17 @@ def deploy_agent_runtime(
     # creates a bare identity agent (no deployment spec), but it's still a
     # first-time spec deploy so the conservative defaults must apply.
     is_update = bool(matching_agents)
+
+    # An engine whose configuration is owned elsewhere (Terraform, a platform
+    # template) is unusable when this deploy creates it instead: it comes up
+    # without the env vars its owner would have set. Refuse rather than create.
+    if update_only and not is_update:
+        raise click.ClickException(
+            f"No Agent Runtime engine named '{display_name}' exists in "
+            f"{project}/{location}, and --update-only forbids creating one.\n"
+            "  Create it first (for example with `agents-cli infra single-project "
+            "--apply`), or drop --update-only to let this deploy create it."
+        )
 
     if matching_agents:
         _validate_agent_identity(
@@ -628,6 +675,10 @@ def deploy_agent_runtime(
         # Preserve env vars set outside this deploy; CLI/user values still win.
         for key, value in _existing_plain_env_vars(existing).items():
             env_vars.setdefault(key, value)
+        # A bare `labels` mask replaces the whole map, so merge with the live
+        # labels to stay additive; user-supplied values win on key conflict.
+        if labels is not None:
+            labels = {**_existing_labels(existing), **labels}
         # Point the A2A agent card at the real Agent Engine HTTP passthrough
         # instead of localhost; needs the existing engine's resource name, so a
         # first-time create picks it up on the next deploy.
@@ -725,7 +776,7 @@ def deploy_agent_runtime(
         "service_account": service_account,
         "identity_type": IdentityType.AGENT_IDENTITY if agent_identity else None,
         "description": description,
-        "labels": labels_dict if labels_dict else None,
+        "labels": labels if labels else None,
         "min_instances": min_instances,
         "max_instances": max_instances,
         "container_concurrency": container_concurrency,
@@ -737,7 +788,13 @@ def deploy_agent_runtime(
     # Agent Engine builds and serves the container over HTTP, so no entrypoint
     # module or class-method spec is needed — just the image build config.
     image_spec_dict: dict[str, Any] = {}
-    build_args_dict = parse_key_value_pairs(build_args)
+    try:
+        build_args_dict = parse_key_value_pairs(build_args)
+    except ValueError as e:
+        raise click.ClickException(
+            f"Error parsing --build-args flag value '{build_args}': {e}"
+        ) from e
+
     if port:
         build_args_dict.setdefault("PORT", str(port))
     if build_args_dict:
@@ -940,7 +997,7 @@ def check_agent_runtime_operation(
     location = location if location != "us-east1" else op_data.get("location", location)
     started_at = op_data.get("started_at", "")
 
-    client = agentplatform.Client(project=project, location=location)
+    client = AgentPlatformClient(project=project, location=location)
     operation = client.agent_engines._get_agent_operation(
         operation_name=operation_name,
     )

@@ -362,8 +362,6 @@ resource "kubernetes_deployment_v1" "app" {
             name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
             value = "gs://${google_storage_bucket.logs_data_bucket.name}/completions"
           }
-
-{%- if cookiecutter.language == "python" %}
           env {
             name  = "GOOGLE_CLOUD_PROJECT"
             value = var.project_id
@@ -378,6 +376,7 @@ resource "kubernetes_deployment_v1" "app" {
             name  = "GOOGLE_GENAI_USE_VERTEXAI"
             value = "True"
           }
+{%- if cookiecutter.language == "python" %}
 {%- if cookiecutter.session_type == "cloud_sql" %}
           env {
             name  = "INSTANCE_CONNECTION_NAME"

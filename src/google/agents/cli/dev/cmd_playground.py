@@ -137,8 +137,7 @@ def _build_go_playground(
 ) -> tuple[str, list[str]]:
     """Build the (banner URL, command) for a Go (adk-go web) playground.
 
-    ADK Go serves the web UI under /ui/ and mounts its API under /api, so the
-    launcher is told where to reach the API server.
+    ADK Go serves the web UI under /ui/ and mounts the ADK REST API at root (/).
     """
     # `adk-go web` always binds ":port" (all interfaces) and has no reload, so
     # warn only when the user actually asked for what we're about to drop.
@@ -154,7 +153,14 @@ def _build_go_playground(
     args = ["go", "run", ".", "web", "--port", str(port)]
     if otel_to_cloud:
         args.append("--otel_to_cloud")
-    args += ["api", "webui", "--api_server_address", f"http://localhost:{port}/api"]
+    args += [
+        "api",
+        "-path_prefix",
+        "/",
+        "webui",
+        "--api_server_address",
+        f"http://localhost:{port}",
+    ]
     return url, args
 
 

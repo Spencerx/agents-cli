@@ -3,6 +3,31 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.5.0] - 2026-09-01
+
+- **Extension system with a LangChain template.** `agents-cli` can now be extended with custom commands and add-on agent templates, shipped with a LangChain extension and authoring guides. Extensions install from GitHub, other git hosts (including self-hosted and enterprise servers), or a local path for development.
+- Add `agents-cli infra show` to inspect the Terraform configuration provisioned by `agents-cli infra single-project`.
+- Add `--update-only` to `agents-cli deploy`, so a deploy updates an existing Agent Runtime engine instead of creating a duplicate.
+- Add a `--labels` flag to `agents-cli deploy` to tag Agent Runtime and Cloud Run deployments.
+- Add `--qps` to `agents-cli eval` that controls the request rate instead of being throttled to the default value.
+- Name the scaffolded root agent after its project instead of a generic default.
+- `agents-cli deploy` now retries throttled Agent Platform calls.
+- `agents-cli create` now reports precondition failures as clear errors instead of exiting successfully or printing a traceback.
+  - https://github.com/google/agents-cli/issues/68
+- Fix background server reuse ignoring the requested session mode.
+  - https://github.com/google/agents-cli/issues/70
+- Fix `reasoning_engine_adapter` streaming returning an empty response.
+  - https://github.com/google/agents-cli/issues/80
+- Prevent multi-region deployments in scaffold and deploy.
+  - https://github.com/google/agents-cli/issues/81
+- Give a clear error for malformed project manifests instead of silently defaulting or printing a traceback.
+  - https://github.com/google/agents-cli/issues/74
+- Fix stale command references in docs and CLI hints.
+  - https://github.com/google/agents-cli/issues/77
+- Scaffolded A2A agents now forward tool calls and responses to clients, not just text.
+- `agents-cli setup` now works without network or git access, with skills bundled into the package.
+- Fix a Windows failure loading a scaffolded project whose config points at a local path.
+
 ## [1.4.2] - 2026-08-28
 
 - Adds upper-bound for google-cloud-aiplatform dependency.

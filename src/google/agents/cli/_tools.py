@@ -151,6 +151,10 @@ def require_tool(name: str, install_hint: str = "") -> str:
     return path
 
 
+# Where `agents-cli setup` fetches the bundled skills from.
+DEFAULT_SKILLS_SOURCE = "https://github.com/google/agents-cli"
+
+
 def run_npx_skills(args: list[str], spinner_msg: str):
     """Run an npx skills command, streaming output in real-time.
 
@@ -164,7 +168,7 @@ def run_npx_skills(args: list[str], spinner_msg: str):
     from google.agents.cli._skills_check import SKILLS_NPX_PACKAGE
 
     full_args = ["npx", "-y", SKILLS_NPX_PACKAGE, *args]
-    click.secho(f"  \u25b8 {shlex.join(full_args)}", fg="cyan", dim=True)
+    click.secho(f"  ▸ {shlex.join(full_args)}", fg="cyan", dim=True)
 
     try:
         run_resolved(full_args, check=True, encoding="utf-8", errors="replace")

@@ -27,6 +27,7 @@ import click
 from agentplatform._genai import _evals_visualization
 from rich.table import Table
 
+from google.agents.cli._agent_platform import AgentPlatformClient
 from google.agents.cli._gcp_project import resolve_gcp_project
 from google.agents.cli._output import Console
 from google.agents.cli._project import (
@@ -130,9 +131,7 @@ def cmd_analyze(
     resolved_location = "global"
 
     try:
-        client = agentplatform.Client(
-            project=resolved_project, location=resolved_location
-        )
+        client = AgentPlatformClient(project=resolved_project, location=resolved_location)
     except Exception as e:
         raise click.ClickException(f"Failed to instantiate Vertex AI Client: {e}") from e
 

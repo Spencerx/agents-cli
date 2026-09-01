@@ -1145,7 +1145,7 @@
       id:    "cloud_run",
       label: "Cloud Run",
       blurb: "When you need a custom HTTP surface around the agent.",
-      cmd: "agents-cli deploy --dry-run\n  Would run: gcloud beta run deploy outage-recovery-bot --project outage-recovery-prod --region us-east1 --source . --memory 4Gi --no-allow-unauthenticated --no-cpu-throttling --port 8080 --labels created-by=adk",
+      cmd: "agents-cli deploy --dry-run\n  Would run: gcloud beta run deploy outage-recovery-bot --project outage-recovery-prod --region us-east1 --source . --memory 4Gi --no-allow-unauthenticated --no-cpu-throttling --port 8080 --labels created-by=agents-cli",
       pipeline: [
         { tool: "Cloud Build", what: "buildpack-build the container" },
         { tool: "Artifact Registry", what: "push the image" },

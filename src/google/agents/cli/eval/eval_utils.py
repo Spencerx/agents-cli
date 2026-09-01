@@ -15,13 +15,16 @@
 """Shared utility functions for agents-cli eval commands."""
 
 import datetime
+import functools
 import json
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, get_args
 
 import agentplatform._genai.types.common as vertex_types
+import backoff
 import click
 import yaml
 from agentplatform._genai import _evals_visualization
@@ -65,6 +68,73 @@ def resolve_eval_region(region: str | None) -> str:
     return region or DEFAULT_EVAL_REGION
 
 
+# Status codes the eval service's own client retries (_evals_metric_handlers).
+_RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+# How a saturated endpoint surfaces once the wrappers are peeled off. Named
+# rather than "any OSError", which would also retry a bad hostname.
+_TRANSIENT_ERRORS = (ConnectionError, TimeoutError)
+# Attempts are the usual limit; the elapsed budget only catches a metric slow
+# enough that retrying it would sit on a pool thread for minutes. Sized so a
+# judge taking up to ~20s a call still spends all five attempts, and checked
+# between attempts, so a slower one overshoots it by a call.
+_METRIC_MAX_TRIES = 5
+_METRIC_MAX_ELAPSED_SECONDS = 120.0
+# Cap on the sleep between attempts, not on the metric itself.
+_RETRY_MAX_WAIT_SECONDS = 8.0
+
+
+def _is_transient(exc: BaseException | None) -> bool:
+    """True for failures worth retrying rather than scoring as an error.
+
+    Both links are walked because google-auth chains the cause while httpcore
+    severs it with ``raise ... from None``, leaving it on ``__context__``.
+    """
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, _TRANSIENT_ERRORS):
+            return True
+        if _status_of(exc) in _RETRYABLE_STATUS_CODES:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _status_of(exc: BaseException) -> int | None:
+    """The HTTP status an exception reports, if it reports one as an int."""
+    code = (
+        getattr(exc, "code", None)
+        or getattr(exc, "status_code", None)
+        # requests and httpx keep it on the response they raised for.
+        or getattr(getattr(exc, "response", None), "status_code", None)
+    )
+    return code if isinstance(code, int) else None
+
+
+def with_transient_retry(fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Retry a local metric's function on transient failures.
+
+    The SDK runs a custom function once and turns any exception into that
+    case's result, so a rate-limited judge silently shrinks the scored sample.
+    """
+
+    @backoff.on_exception(
+        backoff.expo,
+        Exception,
+        max_value=_RETRY_MAX_WAIT_SECONDS,
+        giveup=lambda exc: not _is_transient(exc),
+        max_tries=_METRIC_MAX_TRIES,
+        max_time=_METRIC_MAX_ELAPSED_SECONDS,
+        # Every worker hits the same endpoint, so a fixed schedule re-converges.
+        jitter=backoff.full_jitter,
+    )
+    @functools.wraps(fn)
+    def run(instance):
+        return fn(instance)
+
+    return run
+
+
 def _compile_custom_function(source: str, metric_name: str):
     """Compiles a custom_function source string into a local Python callable."""
     namespace: dict = {}
@@ -72,7 +142,7 @@ def _compile_custom_function(source: str, metric_name: str):
         exec(compile(source, f"<custom_metric:{metric_name}>", "exec"), namespace)
     except Exception as e:
         raise click.ClickException(
-            f"Failed to compile custom_function for metric '{metric_name}': {e}"
+            f"Failed to load custom_function for metric '{metric_name}': {e}"
         ) from e
     evaluate_fn = namespace.get("evaluate")
     if not callable(evaluate_fn):
@@ -314,7 +384,10 @@ def prepare_eval_metrics(
                         if isinstance(fn_value, str):
                             fn_value = _compile_custom_function(fn_value, m_name)
                         metrics.append(
-                            vertex_types.Metric(name=m_name, custom_function=fn_value)
+                            vertex_types.Metric(
+                                name=m_name,
+                                custom_function=with_transient_retry(fn_value),
+                            )
                         )
                         local_custom_count += 1
                     elif execution == "remote":

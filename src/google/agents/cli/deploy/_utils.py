@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-import logging
+import re
 import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -77,7 +77,15 @@ def resolve_service_name(cfg: ProjectConfig, override: str | None) -> str:
 
 
 def parse_key_value_pairs(kv_string: str | None) -> dict[str, str]:
-    """Parse key-value pairs from a comma-separated KEY=VALUE string."""
+    """Parse a comma-separated ``KEY=VALUE`` string into a dict.
+
+    Splits on commas, strips surrounding whitespace from each key and value,
+    and lets the last value win on duplicate keys. Returns ``{}`` when the input
+    is ``None`` or empty.
+
+    Raises:
+        ValueError: If a segment is malformed (has no ``=``).
+    """
     result = {}
     if kv_string:
         for pair in kv_string.split(","):
@@ -85,7 +93,7 @@ def parse_key_value_pairs(kv_string: str | None) -> dict[str, str]:
                 key, value = pair.split("=", 1)
                 result[key.strip()] = value.strip()
             else:
-                logging.warning(f"Skipping malformed key-value pair: {pair}")
+                raise ValueError(f"Malformed key-value pair: {pair}")
     return result
 
 
@@ -112,3 +120,24 @@ def read_project_dotenv(project_root: str | Path) -> dict[str, str]:
         for k, v in dotenv_values(stream=io.StringIO(content)).items()
         if v is not None
     }
+
+
+def validate_deployment_region(
+    region: str | None, deployment_target: str | None = None
+) -> None:
+    """Validate that the deployment region is a single regional location, not a multi-region."""
+    if not region:
+        return
+
+    normalized = region.strip().lower()
+    if not re.match(r"^[a-z]+-[a-z]+\d+$", normalized):
+        import click
+
+        target_str = f" for {deployment_target}" if deployment_target else ""
+        raise click.ClickException(
+            f"Region '{region}' is not a valid single regional location and is not supported{target_str} deployments.\n"
+            "  Cloud infrastructure (Cloud Run, GKE, Agent Runtime) must be deployed to a single regional location (not a multi-region or zone).\n"
+            "  Please specify a valid Google Cloud Platform region (e.g., 'us-central1', 'europe-west4', 'asia-northeast1') via --region or in agents-cli-manifest.yaml.\n"
+            "  See https://cloud.google.com/about/locations for valid regions.\n"
+            "  (Note: To configure Gemini model location separately, set GOOGLE_CLOUD_LOCATION in your .env or --update-env-vars)."
+        )

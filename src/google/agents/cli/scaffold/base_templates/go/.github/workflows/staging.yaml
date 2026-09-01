@@ -19,7 +19,7 @@ on:
     branches:
       - main
     paths:
-      - 'agent/**'
+      - '{{cookiecutter.agent_directory}}/**'
       - 'e2e/**'
       - 'deployment/**'
       - 'go.mod'

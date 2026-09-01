@@ -401,8 +401,6 @@ resource "kubernetes_deployment_v1" "app_staging" {
             name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
             value = "gs://${google_storage_bucket.logs_data_bucket[var.staging_project_id].name}/completions"
           }
-
-{%- if cookiecutter.language == "python" %}
           env {
             name  = "GOOGLE_CLOUD_PROJECT"
             value = var.staging_project_id
@@ -417,6 +415,7 @@ resource "kubernetes_deployment_v1" "app_staging" {
             name  = "GOOGLE_GENAI_USE_VERTEXAI"
             value = "True"
           }
+{%- if cookiecutter.language == "python" %}
 {%- if cookiecutter.session_type == "cloud_sql" %}
           env {
             name  = "INSTANCE_CONNECTION_NAME"
@@ -736,8 +735,6 @@ resource "kubernetes_deployment_v1" "app_prod" {
             name  = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
             value = "gs://${google_storage_bucket.logs_data_bucket[var.prod_project_id].name}/completions"
           }
-
-{%- if cookiecutter.language == "python" %}
           env {
             name  = "GOOGLE_CLOUD_PROJECT"
             value = var.prod_project_id
@@ -752,6 +749,7 @@ resource "kubernetes_deployment_v1" "app_prod" {
             name  = "GOOGLE_GENAI_USE_VERTEXAI"
             value = "True"
           }
+{%- if cookiecutter.language == "python" %}
 {%- if cookiecutter.session_type == "cloud_sql" %}
           env {
             name  = "INSTANCE_CONNECTION_NAME"

@@ -76,7 +76,7 @@ See the [full tutorial](https://google.github.io/agents-cli/guide/quickstart-tut
 | Command | What it does |
 |---------|-------------|
 | `agents-cli setup` | Install CLI + skills to coding agents |
-| `agents-cli scaffold <name>` | Create a new agent project |
+| `agents-cli create <name>` | Create a new agent project |
 | `agents-cli eval run` | Run the agent over the eval dataset and grade the traces |
 | `agents-cli deploy` | Deploy to Google Cloud |
 | `agents-cli publish gemini-enterprise` | Register with Gemini Enterprise |
@@ -89,8 +89,8 @@ See the [full tutorial](https://google.github.io/agents-cli/guide/quickstart-tut
 | `agents-cli login` | Authenticate with Google Cloud or AI Studio |
 | `agents-cli login --status` | Show authentication status |
 | **Scaffold** | |
-| `agents-cli scaffold <name>` | Create a new agent project |
-| `agents-cli scaffold enhance` | Add deployment, CI/CD, or RAG to an existing project |
+| `agents-cli create <name>` | Create a new agent project |
+| `agents-cli scaffold enhance` | Add deployment or CI/CD to an existing project |
 | `agents-cli scaffold upgrade` | Upgrade project to a newer agents-cli version |
 | **Develop** | |
 | `agents-cli run "prompt"` | Run agent with a single prompt |
@@ -110,9 +110,6 @@ See the [full tutorial](https://google.github.io/agents-cli/guide/quickstart-tut
 | `agents-cli publish gemini-enterprise` | Register with Gemini Enterprise |
 | `agents-cli infra single-project` | Provision single-project infrastructure |
 | `agents-cli infra cicd` | Set up CI/CD pipeline + staging/prod infrastructure |
-| **Data** | |
-| `agents-cli infra datastore` | Provision datastore infrastructure for RAG |
-| `agents-cli data-ingestion` | Run data ingestion pipeline |
 | **Other** | |
 | `agents-cli info` | Show project config and CLI version |
 | `agents-cli update` | Force reinstall skills to all IDEs |

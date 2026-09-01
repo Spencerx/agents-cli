@@ -67,7 +67,7 @@ def get_current_time(query: str) -> str:
 
 
 root_agent = Agent(
-    name="root_agent",
+    name="{{cookiecutter.root_agent_name}}",
     model=Gemini(
         model=MODEL,
         retry_options=types.HttpRetryOptions(attempts=3),

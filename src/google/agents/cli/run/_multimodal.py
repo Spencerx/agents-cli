@@ -63,7 +63,7 @@ def build_adk_sse_parts(message: str, files: tuple[str, ...] = ()) -> list[dict]
 
     for file_path in files:
         data, mime_type = _read_and_encode(file_path)
-        parts.append({"inline_data": {"data": data, "mime_type": mime_type}})
+        parts.append({"inlineData": {"data": data, "mimeType": mime_type}})
 
     return parts
 

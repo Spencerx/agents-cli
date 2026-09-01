@@ -16,13 +16,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from google.agents.cli._output import Console
 from google.agents.cli._project import find_project_root
 from google.agents.cli.eval import _paths
-from google.agents.cli.eval.cmd_generate import _DEFAULT_CONCURRENCY, cmd_generate
-from google.agents.cli.eval.cmd_grade import cmd_grade
+from google.agents.cli.eval.cmd_generate import (
+    _DEFAULT_APP_NAME,
+    _DEFAULT_CONCURRENCY,
+    cmd_generate,
+)
+from google.agents.cli.eval.cmd_grade import cmd_grade, qps_option
 
 
 @click.command("run")
@@ -88,7 +94,7 @@ from google.agents.cli.eval.cmd_grade import cmd_grade
 )
 @click.option(
     "--app-name",
-    default="app",
+    default=_DEFAULT_APP_NAME,
     help=(
         "Agent app name to use in the ADK URL path. Defaults to 'app'. "
         "Forwarded to `eval generate`."
@@ -110,6 +116,7 @@ from google.agents.cli.eval.cmd_grade import cmd_grade
         "Custom HTTP header (format: 'Key: Value'). Repeatable. Forwarded to `eval generate`."
     ),
 )
+@qps_option
 def cmd_run(
     *,
     dataset: str | None,
@@ -122,6 +129,7 @@ def cmd_run(
     app_name: str,
     concurrency: int,
     custom_headers: tuple[str, ...],
+    qps: float,
 ):
     """Chain `eval generate` and `eval grade` in one command.
 
@@ -151,16 +159,50 @@ def cmd_run(
     traces_file = str(_paths.default_traces_path(project_root))
 
     console.rule("[bold]Step 1/2: eval generate[/bold]")
-    # generate trusts the agent's own .env for GCP config -- project/region are
-    # only meaningful for grading (the Vertex eval service), forwarded below.
-    generate_cb(
-        dataset=dataset,
-        output=traces_file,
-        url=url,
-        app_name=app_name,
-        concurrency=concurrency,
-        custom_headers=custom_headers,
-    )
+    # An extension that overrides `eval generate` (a non-ADK framework, say) only
+    # gets a say at Click dispatch, which calling the callback would skip -- so
+    # inference would silently run the built-in ADK path against its agent.
+    from google.agents.cli.extension._overrides import installed_override, run_override
+
+    override = installed_override("eval.generate")
+    if override is not None:
+        # The override is a separate process, so it cannot fall back to the
+        # scaffolded dataset the way the built-in callback does.
+        resolved_dataset = _paths.resolve_input_dataset(project_root, dataset)
+        if not resolved_dataset:
+            raise click.ClickException(
+                "No --dataset specified and default "
+                f"({_paths.DEFAULT_INPUT_DATASET}) not found. "
+                "Specify --dataset PATH."
+            )
+        # run_extension_command forces cwd=project root, so a relative --dataset
+        # would resolve differently than it does for the built-in.
+        argv = [
+            "--dataset",
+            str(Path(resolved_dataset).resolve()),
+            "--output",
+            traces_file,
+        ]
+        if url:
+            argv += ["--url", url]
+        if app_name != _DEFAULT_APP_NAME:
+            argv += ["--app-name", app_name]
+        if concurrency != _DEFAULT_CONCURRENCY:
+            argv += ["--concurrency", str(concurrency)]
+        for header in custom_headers:
+            argv += ["--header", header]
+        run_override(override, argv, display_path="eval generate")
+    else:
+        # generate trusts the agent's own .env for GCP config -- project/region are
+        # only meaningful for grading (the Vertex eval service), forwarded below.
+        generate_cb(
+            dataset=dataset,
+            output=traces_file,
+            url=url,
+            app_name=app_name,
+            concurrency=concurrency,
+            custom_headers=custom_headers,
+        )
 
     console.rule("[bold]Step 2/2: eval grade[/bold]")
     grade_cb(
@@ -170,4 +212,5 @@ def cmd_run(
         config_path=config_path,
         project=project,
         region=region,
+        qps=qps,
     )

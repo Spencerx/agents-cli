@@ -38,13 +38,14 @@ def is_agent_runtime_url(url: str) -> bool:
     return _AGENT_ENGINE_URL_FRAGMENT in url and _REASONING_ENGINE_PATH in url
 
 
-def is_raw_agent_runtime_url(url: str) -> bool:
-    """``True`` for a bare Agent Runtime resource URL that still needs its
-    ``/api`` passthrough path built.
+def is_legacy_agent_runtime_url(url: str) -> bool:
+    """``True`` for a bare, non-passthrough Agent Runtime resource URL.
+
+    This URL can only be used for legacy ``:streamQuery`` endpoints, not the
+    ``/api/`` passthrough API.
 
     A URL already containing ``/api`` (the deployed APP_URL form served by the
-    container) or any non-Agent-Runtime URL returns ``False`` — those are used
-    as-is with ``/a2a/<app>`` (a2a) or ``/run_sse`` (adk) appended.
+    container) or any non-Agent-Runtime URL returns ``False``.
     """
     return is_agent_runtime_url(url) and "/api" not in url
 
@@ -66,6 +67,15 @@ def validate_agent_runtime_url(url: str) -> None:
         "  The location must appear in the host. The correct format is:\n"
         "    https://<LOCATION>-aiplatform.googleapis.com/v1/projects/<PROJECT>"
         "/locations/<LOCATION>/reasoningEngines/<ID>"
+    )
+
+
+def build_agent_runtime_passthrough_url(location: str, runtime_resource: str) -> str:
+    """Base all clients can target. ``runtime_resource`` is the full
+    ``projects/<num>/locations/<loc>/reasoningEngines/<id>`` resource name."""
+    return (
+        f"https://{location}-aiplatform.googleapis.com/reasoningEngines/v1/"
+        f"{runtime_resource}/api"
     )
 
 

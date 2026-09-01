@@ -71,7 +71,10 @@ def fetch_app_info(
     resp = requests.get(url, headers=headers, timeout=_APP_INFO_TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()
-    return payload.get("rootAgentName"), payload.get("agents") or {}
+    # Accept both camelCase and snake_case for cross language compatibility
+    root_agent_name = payload.get("rootAgentName", payload.get("root_agent_name"))
+    agents = payload.get("agents") or {}
+    return root_agent_name, agents
 
 
 def run_sse(
@@ -91,10 +94,10 @@ def run_sse(
     """
     run_url = f"{base_url}/run_sse"
     payload = {
-        "app_name": app_name,
-        "user_id": user_id,
-        "session_id": session_id,
-        "new_message": user_message,
+        "appName": app_name,
+        "userId": user_id,
+        "sessionId": session_id,
+        "newMessage": user_message,
     }
 
     with requests.post(

@@ -87,8 +87,11 @@ def ensure_server(
             Only takes effect when a new server is started.
         use_in_memory_session: Sets ``USE_IN_MEMORY_SESSION`` in the
             server's env to ``true`` (default) or ``false``. Only takes
-            effect when a new server is started; a reused server keeps
-            whatever env it was started with.
+            effect when a new server is started.  When reusing an existing
+            server, this value is compared against the mode recorded in the
+            PID file; a mismatch raises a :class:`click.ClickException`
+            without terminating the existing server.  Legacy PID files that
+            pre-date this field are treated as ``True``.
 
     Returns:
         A :class:`ServerInfo` with the port and whether this call started
@@ -98,6 +101,22 @@ def ensure_server(
 
     if info:
         if _is_server_alive(info["pid"], info["port"]):
+            # Validate session mode before reuse or cleanup.  Legacy PID files that
+            # pre-date this field are treated as use_in_memory_session=True
+            # (the historical default).  A mismatch is a hard error; the
+            # existing server is NOT terminated so the user can decide.
+            existing_mode = info.get("use_in_memory_session", True)
+            if existing_mode != use_in_memory_session:
+                existing_str = "in-memory" if existing_mode else "persistent"
+                requested_str = "in-memory" if use_in_memory_session else "persistent"
+                raise click.ClickException(
+                    f"Cannot reuse the existing server: it uses "
+                    f"{existing_str} sessions, but {requested_str} "
+                    f"sessions were requested.\n"
+                    "  Run 'agents-cli run --stop-server' first, "
+                    "then retry."
+                )
+
             # Check idle timeout — stop the server if it's been idle too long.
             if _is_idle(info, idle_timeout):
                 _cleanup(project_root, info)
@@ -127,7 +146,13 @@ def ensure_server(
         use_in_memory_session=use_in_memory_session,
     )
     _wait_for_port(project_root, port, pid=pid)
-    _write_pid_file(project_root, pid=pid, port=port, trace_to_cloud=trace_to_cloud)
+    _write_pid_file(
+        project_root,
+        pid=pid,
+        port=port,
+        trace_to_cloud=trace_to_cloud,
+        use_in_memory_session=use_in_memory_session,
+    )
     click.secho(f"Local server started on port {port} (PID {pid})", dim=True)
     click.secho("  Stop with: agents-cli run --stop-server", dim=True)
     return ServerInfo(port, started=True)
@@ -266,15 +291,15 @@ def _go_serve_command(
     trace_to_cloud: bool = False,
     **_,
 ) -> list[str]:
-    """Booting command for a Go agent: `go run . web ... api a2a`.
+    """Booting command for a Go agent: `go run . web ... api -path_prefix / a2a`.
 
     Mirrors the template Makefile's local-backend target. ADK Go serves the
-    ADK API under /api and A2A under /a2a on this port.
+    ADK REST API at the root (-path_prefix /) and A2A under /a2a on this port.
     """
     cmd = ["go", "run", ".", "web", "--port", str(port)]
     if trace_to_cloud:
         cmd.append("--otel_to_cloud")
-    return [*cmd, "api", "a2a"]
+    return [*cmd, "api", "-path_prefix", "/", "a2a"]
 
 
 # `None` = not supported yet; dispatch_language raises a clear error.
@@ -287,11 +312,7 @@ LANGUAGE_HANDLERS = {
 
 
 def api_base_path(language: str) -> str:
-    """Return the URL sub-path the local ADK API is served under for ``language``.
-
-    The value is language configuration (ADK Go serves the API under ``/api``,
-    Python serves it at the root), so it lives in ``LANGUAGE_CONFIGS``.
-    """
+    """Return the URL sub-path the local ADK API is served under for ``language``."""
     return get_language_config(language).get("api_base_path", "")
 
 
@@ -453,6 +474,7 @@ def _write_pid_file(
     pid: int,
     port: int,
     trace_to_cloud: bool = False,
+    use_in_memory_session: bool = True,
 ) -> None:
     now = datetime.now(UTC).isoformat()
     data = {
@@ -461,6 +483,7 @@ def _write_pid_file(
         "started_at": now,
         "last_activity": now,
         "trace_to_cloud": trace_to_cloud,
+        "use_in_memory_session": use_in_memory_session,
     }
     path = _pid_file_path(project_root)
     path.parent.mkdir(exist_ok=True)

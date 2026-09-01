@@ -16,7 +16,7 @@ const getWeather = new FunctionTool({
 });
 
 export const rootAgent = new LlmAgent({
-  name: '{{cookiecutter.project_name | replace("-", "_")}}_agent',
+  name: '{{cookiecutter.root_agent_name}}',
   model: MODEL,
   description: 'Tells the current weather in a specified city.',
   instruction: `You are a helpful assistant that tells the current weather in a city.

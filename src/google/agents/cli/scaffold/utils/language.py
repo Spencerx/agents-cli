@@ -60,6 +60,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_in_subdirectory": False,
         "version_reader": _read_python_version,
         "api_base_path": "",
+        "a2a_base_path_factory": lambda app_name: f"/a2a/{app_name}",
     },
     "go": {
         "lock_file": "go.sum",
@@ -70,7 +71,8 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_variable": "RootAgent",
         "agent_in_subdirectory": False,
         "version_reader": None,
-        "api_base_path": "/api",
+        "api_base_path": "",
+        "a2a_base_path_factory": lambda _app_name: "",
     },
     "java": {
         "lock_file": None,  # Maven doesn't have a separate lock file
@@ -83,6 +85,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_in_subdirectory": True,  # Java uses package subdirectories
         "version_reader": None,
         "api_base_path": "",
+        "a2a_base_path_factory": None,
     },
     "typescript": {
         "lock_file": "package-lock.json",
@@ -94,6 +97,7 @@ LANGUAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "agent_in_subdirectory": False,
         "version_reader": None,
         "api_base_path": "",
+        "a2a_base_path_factory": None,
     },
 }
 

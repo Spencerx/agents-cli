@@ -707,26 +707,27 @@ WRITE_DEPENDENCY_HANDLERS: dict[str, Callable | None] = {
 def update_acli_metadata(
     project_dir: pathlib.Path,
     create_params: dict[str, Any],
+    *,
     acli_version: str | None = None,
-    language: str = "python",
     remove_keys: list[str] | None = None,
-) -> bool:
+    base_template: str | None = None,
+) -> None:
     """Update specific keys in the unified agents-cli-manifest.yaml metadata file.
+
+    A manifest that cannot be read or written is logged and skipped: every
+    caller writes metadata as a side effect of work that already succeeded.
 
     Args:
         project_dir: Path to the project directory
         create_params: Dict of keys to update inside create_params
         acli_version: If provided, update acli_version
-        language: Project language (unused now as config file is fixed)
         remove_keys: List of keys to remove from create_params section
-
-    Returns:
-        True if successful, False otherwise
+        base_template: If provided, record it at the manifest top level
     """
     manifest_path = project_dir / "agents-cli-manifest.yaml"
     if not manifest_path.exists():
         logging.warning(f"Manifest not found: {manifest_path}")
-        return False
+        return
 
     try:
         with open(manifest_path, encoding="utf-8") as f:
@@ -734,6 +735,9 @@ def update_acli_metadata(
 
         if acli_version:
             data["acli_version"] = acli_version
+
+        if base_template is not None:
+            data["base_template"] = base_template
 
         if "create_params" not in data or not isinstance(data["create_params"], dict):
             data["create_params"] = {}
@@ -749,10 +753,8 @@ def update_acli_metadata(
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
-        return True
     except Exception as e:
         logging.warning(f"Could not update ACLI metadata in {manifest_path}: {e}")
-        return False
 
 
 def migrate_legacy_python_config(

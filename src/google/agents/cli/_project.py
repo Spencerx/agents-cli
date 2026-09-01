@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,8 +58,15 @@ class ProjectConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ProjectConfig:
+    def from_dict(
+        cls,
+        data: Mapping[str, Any] | Any,
+        filename: str = "agents-cli-manifest.yaml",
+    ) -> ProjectConfig:
         """Create a ProjectConfig from a raw manifest dictionary."""
+        if not isinstance(data, Mapping):
+            raise click.ClickException(f"malformed {filename}")
+
         cfg = cls()
         cfg.project_name = data.get("name", cfg.project_name)
         cfg.agent_directory = data.get("agent_directory", cfg.agent_directory)
@@ -68,7 +77,11 @@ class ProjectConfig:
         )
         cfg.language = data.get("language", cfg.language)
 
-        create_params = data.get("create_params", {})
+        create_params = data.get("create_params")
+        if create_params is None:
+            create_params = {}
+        elif not isinstance(create_params, Mapping):
+            raise click.ClickException(f"malformed create_params in {filename}")
 
         cfg.session_type = create_params.get("session_type", cfg.session_type)
         cfg.cicd_runner = create_params.get("cicd_runner", cfg.cicd_runner)
@@ -103,6 +116,34 @@ def _warn_legacy_config() -> None:
         _WARNED_LEGACY_CONFIG = True
 
 
+def _read_project_config_from_manifest(manifest_path: Path) -> ProjectConfig:
+    """Read project configuration from an agents-cli-manifest.yaml file."""
+    with open(manifest_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if data is None:
+        data = {}
+    return ProjectConfig.from_dict(data, filename=manifest_path.name)
+
+
+def _read_project_config_from_pyproject(pyproject_path: Path) -> ProjectConfig:
+    """Read project configuration from a legacy pyproject.toml file."""
+    with open(pyproject_path, "rb") as f:
+        pyproj_data = tomllib.load(f)
+    tool_section = pyproj_data.get("tool", {})
+    if not isinstance(tool_section, Mapping) or "agents-cli" not in tool_section:
+        return ProjectConfig()
+    _warn_legacy_config()
+    data = tool_section["agents-cli"]
+    if data is None:
+        data = {}
+    elif isinstance(data, Mapping):
+        data = dict(data)
+        project_section = pyproj_data.get("project", {})
+        if isinstance(project_section, Mapping):
+            data["name"] = project_section.get("name", "")
+    return ProjectConfig.from_dict(data, filename=pyproject_path.name)
+
+
 def read_project_config(project_dir: str | None = None) -> ProjectConfig:
     """Read project metadata from agents-cli-manifest.yaml.
 
@@ -120,26 +161,12 @@ def read_project_config(project_dir: str | None = None) -> ProjectConfig:
     pyproject_path = root / "pyproject.toml"
 
     if manifest_path.exists():
-        # Primary: read from manifest
-        with open(manifest_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        return _read_project_config_from_manifest(manifest_path)
     elif pyproject_path.exists():
-        # Fallback: read from pyproject.toml
-        with open(pyproject_path, "rb") as f:
-            pyproj_data = tomllib.load(f)
-        if not pyproj_data.get("tool", {}).get("agents-cli"):
-            return ProjectConfig()
-        _warn_legacy_config()
-        data = pyproj_data["tool"]["agents-cli"]
-        # Read project name from [project]
-        project_section = pyproj_data.get("project", {})
-        project_name = project_section.get("name", "")
-        data["name"] = project_name
+        return _read_project_config_from_pyproject(pyproject_path)
     else:
-        # If neither works, return a default project config
+        # If neither exists, return a default project config
         return ProjectConfig()
-
-    return ProjectConfig.from_dict(data)
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
@@ -207,7 +234,8 @@ def _find_legacy_project_root(start_dir: Path) -> Path | None:
             try:
                 with open(pyproject_path, "rb") as f:
                     data = tomllib.load(f)
-                if "tool" in data and "agents-cli" in data["tool"]:
+                tool_data = data.get("tool")
+                if isinstance(tool_data, Mapping) and "agents-cli" in tool_data:
                     return parent
             except Exception:
                 pass
@@ -334,3 +362,24 @@ def find_project_config(project_dir: Path | None = None) -> ProjectConfig | None
         return None
 
     return read_project_config(str(project_root_dir))
+
+
+def root_agent_name(project_name: str) -> str:
+    """The ADK agent name the scaffolded template gives a project's root agent.
+
+    Single definition on purpose. The scaffold bakes this into
+    ``Agent(name=...)``, and it then travels out in telemetry as the OpenTelemetry
+    ``gen_ai.agent.name`` attribute -- which is what an observability backend
+    filters an agent's traces on. Deriving it from the project name in one
+    place is what lets agents-cli know the value without parsing the
+    generated ``agent.py``.
+
+    Coerced to a valid Python identifier, since ADK agent names must be:
+    ``my-agent`` becomes ``my_agent``. Falls back to ``root_agent`` (the
+    historical literal) when the project name has nothing usable in it.
+    """
+    candidate = re.sub(r"\W+", "_", project_name).strip("_").lower()
+    if not candidate:
+        return "root_agent"
+    # A leading digit is legal in a project name but not in an identifier.
+    return f"agent_{candidate}" if candidate[0].isdigit() else candidate

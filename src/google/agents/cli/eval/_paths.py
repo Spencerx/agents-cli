@@ -100,6 +100,17 @@ def timestamped_artifact_path(directory: Path, prefix: str, ext: str = "json") -
     return directory / f"{prefix}_{timestamp()}.{ext}"
 
 
+def resolve_input_dataset(project_root: Path, dataset: str | None) -> str | None:
+    """The dataset to run inference over: the flag, else the scaffolded default.
+
+    None means neither was available, which callers report as a usage error.
+    """
+    if dataset:
+        return dataset
+    default = project_root / DEFAULT_INPUT_DATASET
+    return str(default) if default.exists() else None
+
+
 def default_traces_path(project_root: Path) -> Path:
     """Return the default stage-2 traces output path.
 

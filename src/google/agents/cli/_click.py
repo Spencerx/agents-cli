@@ -50,6 +50,7 @@ class LazyGroup(click.Group):
         self._lazy_commands: dict[str, tuple[str, str]] = {}
         # name -> experiment label
         self._experiment_gates: dict[str, str] = {}
+        self._overrides: dict[str, click.Command] = {}
 
     def add_lazy_command(
         self,
@@ -81,12 +82,20 @@ class LazyGroup(click.Group):
         return bool(resolve_experiment(label))
 
     def list_commands(self, ctx: click.Context) -> list[str]:
-        names = set(super().list_commands(ctx)) | set(self._lazy_commands)
+        names = (
+            set(super().list_commands(ctx))
+            | set(self._lazy_commands)
+            | set(self._overrides)
+        )
         return sorted(filter(self._is_visible, names))
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        # Overrides are consulted only after the visibility check, so an installed
+        # extension cannot expose a command that is gated off.
         if not self._is_visible(cmd_name):
             return None
+        if cmd_name in self._overrides:
+            return self._overrides[cmd_name]
         if cmd_name in self._lazy_commands and cmd_name not in self.commands:
             import_path, _ = self._lazy_commands[cmd_name]
             module_path, attr = import_path.split(":")
@@ -98,6 +107,9 @@ class LazyGroup(click.Group):
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         rows: list[tuple[str, str]] = []
         for name in self.list_commands(ctx):
+            if name in self._overrides:
+                rows.append((name, self._overrides[name].get_short_help_str(limit=1000)))
+                continue
             if name in self.commands:
                 # Don't truncate — Click's default of 45 would cut our docstring summaries.
                 rows.append((name, self.commands[name].get_short_help_str(limit=1000)))

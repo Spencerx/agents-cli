@@ -39,18 +39,15 @@ from a2a.utils.constants import (
 from google.protobuf.json_format import MessageToDict
 
 from google.agents.cli._adk_client import create_session, run_sse
-from google.agents.cli._agent_runtime_a2a import (
-    build_agent_runtime_a2a_base_url,
-    build_agent_runtime_a2a_card_url,
-)
 from google.agents.cli._project import (
     chdir_project_root,
     read_project_config,
     require_agent_directory,
 )
 from google.agents.cli._remote import (
+    build_agent_runtime_passthrough_url,
     build_remote_headers,
-    is_raw_agent_runtime_url,
+    is_legacy_agent_runtime_url,
     parse_agent_runtime_service_url,
     validate_agent_runtime_url,
 )
@@ -366,35 +363,39 @@ def _dispatch_query(
     URL, auth headers) flows so the two paths can't drift.
 
     Modes:
-      - ``a2a``: A2A protocol.  If the URL points to Agent Runtime,
-        automatically constructs the ``/a2a`` sub-path; otherwise
-        appends ``/a2a/{app_name}``.
-      - ``adk``: ADK SSE.  Uses ``:streamQuery`` for Agent Runtime
+      - ``a2a``: A2A protocol.
+        If the URL points to legacy Agent Runtime, automatically constructs the passthrough URL
+        which is used as the base URL for A2A queries (legacy A2A on Reasoning Engine is not supported).
+
+        The remote agent's card location can't be known from a bare ``--url``,
+        so both known layouts are probed: ``/a2a/{app_name}`` (Python ADK, which
+        namespaces multiple agents) then the base root (Go and the A2A spec's
+        canonical location).
+      - ``adk``: ADK SSE.  Uses ``:streamQuery`` for legacy Agent Runtime
         URLs, ``/run_sse`` for everything else.
     """
     if mode == "a2a":
-        if is_raw_agent_runtime_url(service_url):
+        if is_legacy_agent_runtime_url(service_url):
             location, runtime_resource = parse_agent_runtime_service_url(service_url)
-            a2a_base = build_agent_runtime_a2a_base_url(
-                location, runtime_resource, app_name
-            )
-            card_url = build_agent_runtime_a2a_card_url(
-                location, runtime_resource, app_name
-            )
-        else:
-            a2a_base = f"{service_url}/a2a/{app_name}"
-            card_url = f"{a2a_base}{AGENT_CARD_WELL_KNOWN_PATH}"
+            service_url = build_agent_runtime_passthrough_url(location, runtime_resource)
+
+        # Probe the namespaced Python path first (when we have an app name),
+        # then fall back to the root card served by Go and the A2A spec.
+        a2a_bases = []
+        if app_name:
+            a2a_bases.append(f"{service_url}/a2a/{app_name}")
+        a2a_bases.append(service_url)
+
         _query_a2a(
-            card_url=card_url,
+            a2a_bases=a2a_bases,
             parts=build_a2a_parts(message, files),
             headers=headers,
-            url=a2a_base,
             session_id=session_id,
             verbose=verbose,
         )
     elif mode == "adk":
-        if is_raw_agent_runtime_url(service_url):
-            _query_agent_runtime_sse(
+        if is_legacy_agent_runtime_url(service_url):
+            _query_legacy_agent_runtime_sse(
                 service_url=service_url,
                 message=build_agent_runtime_message(message, files),
                 headers=headers,
@@ -584,7 +585,7 @@ def _create_agent_runtime_session(
     return session_id
 
 
-def _query_agent_runtime_sse(
+def _query_legacy_agent_runtime_sse(
     service_url: str,
     message: str | dict,
     headers: dict,
@@ -656,26 +657,38 @@ def _query_agent_runtime_sse(
 
 def _query_a2a(
     *,
-    card_url: str,
+    a2a_bases: list[str],
     parts: list[Part],
     headers: dict,
-    url: str | None = None,
     session_id: str | None = None,
     verbose: bool = False,
 ) -> None:
-    """Fetch an A2A agent card and query the agent."""
-    resp = httpx.get(card_url, headers=headers, timeout=30)
-    if resp.status_code != 200:
-        hint = ""
-        if resp.status_code in (404, 405):
-            hint = "\n  If this is an ADK agent, try --mode adk instead."
-        raise click.ClickException(
-            f"Failed to fetch agent card (HTTP {resp.status_code}):\n  {resp.text}{hint}"
-        )
-    base_url = url or card_url.removesuffix(AGENT_CARD_WELL_KNOWN_PATH)
-    asyncio.run(
-        _query_a2a_async(base_url, parts, headers, session_id=session_id, verbose=verbose)
+    """Probe candidate A2A base URLs for an agent card, then query the agent.
+
+    ``a2a_bases`` are tried in order; the first that serves a card at
+    ``{base}/.well-known/agent-card.json`` is used. If all candidates fail,
+    an error is raised listing one line per path tried.
+    """
+    failures: list[tuple[str, int, str]] = []  # [(path, status, error)]
+    for base in a2a_bases:
+        card_url = f"{base}{AGENT_CARD_WELL_KNOWN_PATH}"
+        resp = httpx.get(card_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            asyncio.run(
+                _query_a2a_async(
+                    base, parts, headers, session_id=session_id, verbose=verbose
+                )
+            )
+            return
+        failures.append((card_url, resp.status_code, resp.text))
+
+    detail = "\n".join(
+        f"  HTTP {status} from {url}:\n    {text}" for url, status, text in failures
     )
+    hint = ""
+    if any(status in (404, 405) for _, status, _ in failures):
+        hint = "\n  If this is an ADK agent, try --mode adk instead."
+    raise click.ClickException(f"Failed to fetch agent card:\n{detail}{hint}")
 
 
 async def _query_a2a_async(

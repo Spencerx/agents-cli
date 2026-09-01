@@ -43,6 +43,9 @@ from google.agents.cli.run._local_server import ensure_server, stop_server
 
 _DEFAULT_CONCURRENCY = min(32, (os.cpu_count() or 4))
 
+# Default agent app name in the local ADK URL path (/apps/<app-name>/...).
+_DEFAULT_APP_NAME = "app"
+
 # Fallback root-agent name for the rewrite_model_author_events rewrite
 # when /app-info is unavailable.
 _FALLBACK_ROOT_AGENT_NAME = "root_agent"
@@ -311,7 +314,8 @@ def _resolve_agents_metadata(url: str, app_name: str, headers: dict) -> tuple[st
             description=info.get("description"),
             instruction=info.get("instruction"),
             tools=info.get("tools"),
-            sub_agents=info.get("sub_agents"),
+            # Accept both snake_case and camelCase keys for cross language compatibility.
+            sub_agents=info.get("sub_agents", info.get("subAgents")),
         )
         for agent_id, info in raw_agents.items()
     }
@@ -503,7 +507,7 @@ def _print_failure_summary(
 )
 @click.option(
     "--app-name",
-    default="app",
+    default=_DEFAULT_APP_NAME,
     help=(
         "Agent app name to use in the ADK URL path "
         "(/apps/<app-name>/users/...). Only used when --url is set. "
@@ -569,16 +573,13 @@ def cmd_generate(
     cfg = read_project_config(str(project_root))
     require_agent_directory(cfg)
 
+    dataset = _paths.resolve_input_dataset(project_root, dataset)
     if not dataset:
-        default_dataset_path = project_root / _paths.DEFAULT_INPUT_DATASET
-        if default_dataset_path.exists():
-            dataset = str(default_dataset_path)
-        else:
-            raise click.ClickException(
-                "No --dataset specified and default "
-                f"({_paths.DEFAULT_INPUT_DATASET}) not found. "
-                "Specify --dataset PATH."
-            )
+        raise click.ClickException(
+            "No --dataset specified and default "
+            f"({_paths.DEFAULT_INPUT_DATASET}) not found. "
+            "Specify --dataset PATH."
+        )
 
     dataset = str(Path(dataset).resolve())
 

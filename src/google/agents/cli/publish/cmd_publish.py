@@ -26,16 +26,18 @@ from urllib.parse import urlparse
 
 import click
 import requests
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from packaging import version
 from rich.table import Table
 
-from google.agents.cli._agent_runtime_a2a import build_agent_runtime_a2a_card_url
+from google.agents.cli._agent_platform import AgentPlatformClient
 from google.agents.cli._gcp_project import (
     get_gcp_project_number,
     resolve_gcp_project,
 )
 from google.agents.cli._output import Console, emit
 from google.agents.cli._project import read_project_config
+from google.agents.cli._remote import build_agent_runtime_passthrough_url
 from google.agents.cli._runner import run_resolved
 from google.agents.cli._tools import ToolNotFoundError
 from google.agents.cli.auth import get_access_token, get_id_token
@@ -43,6 +45,7 @@ from google.agents.cli.scaffold.utils.gcp import (
     get_user_agent,
     get_x_goog_api_client_header,
 )
+from google.agents.cli.scaffold.utils.language import get_language_config
 from google.agents.cli.scaffold.utils.logging import display_welcome_banner
 
 # All human-facing output (progress, tables, prompts, errors) goes to stderr so
@@ -409,22 +412,44 @@ def construct_agent_card_url_from_metadata(
             parsed = parse_agent_runtime_id(remote_agent_runtime_id)
             if parsed:
                 location = parsed["location"]
-                # Prefer the agent_directory recorded at deploy time so publish
-                # works from outside the project dir; fall back to local config
-                # for metadata written before it was persisted.
+                # Prefer the agent_directory and language recorded at deploy
+                # time so publish works from outside the project dir; fall back
+                # to local config for metadata written before it was persisted.
                 agent_directory = metadata.get("agent_directory")
-                if not agent_directory:
-                    agent_directory = read_project_config().agent_directory
+                language = metadata.get("language")
+                if not agent_directory or not language:
+                    cfg = read_project_config()
+                    missing = []
+                    if not agent_directory:
+                        agent_directory = cfg.agent_directory
+                        missing.append("agent_directory")
+                    if not language:
+                        language = cfg.language
+                        missing.append("language")
                     logging.warning(
-                        "deployment_metadata.json has no 'agent_directory'; using "
-                        "'%s' from the local project config. If you are publishing "
-                        "from outside the project directory, the A2A card URL may be "
-                        "wrong — re-deploy to record agent_directory in the metadata.",
-                        agent_directory,
+                        "deployment_metadata.json is missing one or more fields; "
+                        "using the local project config instead. If you are "
+                        "publishing from outside the project directory, the A2A "
+                        "card URL may be wrong — re-deploy to record them in the "
+                        "metadata. Missing fields: %r",
+                        missing,
                     )
-                return build_agent_runtime_a2a_card_url(
-                    location, remote_agent_runtime_id, agent_directory
+                a2a_path_factory: Callable[[str], str] | None = get_language_config(
+                    language
+                ).get("a2a_base_path_factory")
+                if a2a_path_factory is None:
+                    logging.warning(
+                        "No A2A base path is defined for language '%s'; defaulting "
+                        "to the root path. The agent card URL may be wrong.",
+                        language,
+                    )
+                    a2a_path = ""
+                else:
+                    a2a_path = a2a_path_factory(agent_directory)
+                base_url = build_agent_runtime_passthrough_url(
+                    location, remote_agent_runtime_id
                 )
+                return f"{base_url}{a2a_path}{AGENT_CARD_WELL_KNOWN_PATH}"
 
     return None
 
@@ -504,9 +529,7 @@ def get_agent_runtime_metadata(agent_runtime_id: str) -> tuple[str | None, str |
     location = parts[3]
 
     try:
-        import agentplatform
-
-        client = agentplatform.Client(project=project_id, location=location)
+        client = AgentPlatformClient(project=project_id, location=location)
         agent_runtime = client.agent_engines.get(name=agent_runtime_id)
 
         display_name = getattr(agent_runtime.api_resource, "display_name", None)

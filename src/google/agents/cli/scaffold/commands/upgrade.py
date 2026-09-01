@@ -161,7 +161,7 @@ def upgrade(
 
     # Post-apply: stamp the new version into the manifest
     def _update_version(proj_dir: pathlib.Path, lang: str) -> None:
-        update_acli_metadata(proj_dir, {}, acli_version=new_version, language=lang)
+        update_acli_metadata(proj_dir, {}, acli_version=new_version)
 
     # Migrate before the merge so a customized evalset isn't clobbered by the
     # stock template default the merge would otherwise copy in first.

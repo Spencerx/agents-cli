@@ -16,6 +16,7 @@
 
 import logging
 import shutil
+from pathlib import Path
 
 import click
 
@@ -43,6 +44,14 @@ from google.agents.cli.scaffold.utils.language import dispatch_language
 def cmd_install(clean: bool, locked: bool):
     """Install project dependencies."""
     chdir_project_root()
+    # Re-materialize any missing extension working copies from their pinned
+    # SHAs, before the dispatch: the loader tells a user with a missing copy to
+    # run this command, and a language with no install handler raises below.
+    # Never advances pins.
+    from google.agents.cli.extension._sync import sync_extensions
+
+    sync_extensions(find_project_root(Path.cwd()))
+
     handler = dispatch_language(
         "install", LANGUAGE_HANDLERS, read_project_config().language
     )

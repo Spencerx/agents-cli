@@ -266,7 +266,9 @@ def main():
     _patch_eval_tool_introspection()
     agent_info = types.evals.AgentInfo.load_from_agent(agent=agent)
 
-    client = agentplatform.Client(project=project, location=location)
+    # Staged into the user's project and run with their interpreter, so it
+    # cannot import the factory (see cmd_dataset._stage_synthesize_runner).
+    client = agentplatform.Client(project=project, location=location)  # noqa: TID251
     print(
         f"Calling Vertex AI generate_conversation_scenarios "
         f"(project={project}, location={location})...",

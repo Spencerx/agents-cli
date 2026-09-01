@@ -437,7 +437,9 @@ def run_terraform(
     tf_dir = Path(tf_dir)
     terraform_path = "terraform"
 
-    init_args: list[str] = [terraform_path, "init"]
+    # -input=false on every step: a value Terraform wants but nobody passed is
+    # reported as an error naming the variable, instead of blocking on a prompt.
+    init_args: list[str] = [terraform_path, "init", "-input=false"]
     if local_state:
         init_args.append("-backend=false")
     run_command(init_args, cwd=tf_dir)
@@ -445,9 +447,14 @@ def run_terraform(
     if apply:
         # -auto-approve is safe here: the user already reviewed changes via
         # the default plan step before explicitly opting in with --apply.
-        action_args: list[str] = [terraform_path, "apply", "-auto-approve"]
+        action_args: list[str] = [
+            terraform_path,
+            "apply",
+            "-auto-approve",
+            "-input=false",
+        ]
     else:
-        action_args = [terraform_path, "plan"]
+        action_args = [terraform_path, "plan", "-input=false"]
 
     if var_file:
         action_args.extend(["--var-file", var_file])

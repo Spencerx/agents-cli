@@ -46,7 +46,7 @@ public class Agent {
 
   public static final LlmAgent ROOT_AGENT =
       LlmAgent.builder()
-          .name("{{cookiecutter.project_name}}")
+          .name("{{cookiecutter.root_agent_name}}")
           .model(MODEL)
           .description("A helpful AI assistant that can provide weather information.")
           .instruction(
